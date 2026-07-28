@@ -1,0 +1,207 @@
+decoder:
+  backend: opencv
+  threads: 0
+  # Increase OpenCV/FFmpeg packet-read tolerance for long MP4 recordings.
+  opencv_read_attempts: 65536
+  opencv_reopen_retries: 3
+
+yolo:
+  model: yolo11s.pt
+  tracker: bytetrack.yaml
+  image_size: 1280
+  confidence: 0.12
+  iou: 0.50
+  frame_stride: 1
+  device: auto
+
+keeper:
+  # Version 0.10 analyzes the first seconds automatically. The click dialog is
+  # only used as a fallback when the automatic result is not confident enough.
+  automatic_initial_detection: true
+  bootstrap_seconds: 8.0
+  bootstrap_min_observations: 4
+  bootstrap_observation_target: 12
+  bootstrap_histogram_samples: 20
+  bootstrap_min_score: 0.48
+  bootstrap_min_confidence: 0.52
+  bootstrap_movement_scale: 0.025
+  bootstrap_ball_contact_distance: 1.25
+  bootstrap_ball_contact_target: 3
+  bootstrap_weights:
+    shirt_uniqueness: 0.32
+    camera_proximity: 0.22
+    goal_area: 0.22
+    low_movement: 0.10
+    ball_contact: 0.08
+    persistence: 0.06
+  interactive_selection: true
+  goal_roi: [0.15, 0.05, 0.85, 0.95]
+  # Two broad depth bands work well for a camera behind one goal: the near goal
+  # is normally low in the image and the opposite goal high in the image.
+  goal_regions:
+    - [0.00, 0.00, 1.00, 0.38]
+    - [0.00, 0.62, 1.00, 1.00]
+  referee_exclusion_region: [0.15, 0.35, 0.85, 0.65]
+  referee_central_penalty: 0.35
+  goal_region_falloff: 0.20
+  distance_factor: 1.35
+  minimum_ball_confidence: 0.15
+  minimum_contact_frames: 2
+  # Conservative recovery for very fast saves visible in only one sampled frame.
+  single_frame_save_min_approach: 0.90
+  single_frame_save_min_identity: 0.75
+  single_frame_save_min_ball_confidence: 0.45
+  confirmation_window_seconds: 0.55
+  minimum_identity_confidence: 0.45
+  minimum_heuristic_score: 0.35
+  reid_min_confidence: 0.62
+  reid_position_scale: 4.0
+  reid_confirmation_frames: 4
+  reid_switch_cooldown_seconds: 0.8
+  reid_keep_confidence: 0.50
+  reid_switch_margin: 0.08
+  reid_verbose_console: false
+  confidence_lock_after_seconds: 30.0
+  # Keeper identity score: shirt contrast 45%, goal area 30%, continuity 15%,
+  # similarity to the initially selected shirt 10%.
+
+clips:
+  # 0.13 plans clip boundaries from the observed beginning and end of the
+  # goalkeeper action. These values are context margins, not fixed windows
+  # around the trigger frame.
+  seconds_before: 4.0
+  seconds_after: 4.0
+  category_pre_roll_seconds:
+    catch_or_control: 10.0
+    cross_claim_or_high_catch: 8.0
+    save_or_deflection: 8.0
+    diving_save: 9.0
+    keeper_clearance: 6.0
+    distribution: 4.0
+    interaction: 5.0
+    recovery_keeper_interaction: 6.0
+  category_post_roll_seconds:
+    catch_or_control: 11.0
+    cross_claim_or_high_catch: 9.0
+    save_or_deflection: 10.0
+    diving_save: 11.0
+    keeper_clearance: 11.0
+    distribution: 12.0
+    interaction: 8.0
+    recovery_keeper_interaction: 7.0
+  merge_gap_seconds: 2.0
+  dynamic_end_enabled: true
+  continuation_gap_seconds: 12.0
+  final_keeper_contact_tail_seconds: 5.0
+  minimum_clip_seconds: 6.0
+  max_dynamic_clip_seconds: 45.0
+  # A file change is treated as an edit/half-time boundary unless explicitly
+  # enabled. This prevents the last second of one half leaking into the next.
+  allow_cross_source_clips: false
+  classic_action_rescue:
+    enabled: true
+    categories: [catch_or_control, cross_claim_or_high_catch, save_or_deflection, diving_save, keeper_clearance, ball_contact, interaction]
+    minimum_contact_frames: 2
+    maximum_normalized_distance: 0.55
+    minimum_identity_confidence: 0.58
+    minimum_ball_confidence: 0.25
+    minimum_dynamic_signal: 0.12
+  interaction_validation:
+    enabled: true
+    extreme_contact_frames: 80
+    suspicious_contact_frames: 12
+    minimum_motion_signal: 0.08
+    central_field_y_min: 0.36
+    central_field_y_max: 0.64
+    outside_box_restart_min_seconds: 2.5
+  max_candidates: 0
+  mode: accurate
+  encoder: auto
+  parallel_jobs: 2
+  preset: fast
+  crf: 20
+  nvenc_preset: p4
+  nvenc_tune: hq
+  cq: 20
+  audio_bitrate: 160k
+
+qwen:
+  enabled: false
+  model: Qwen/Qwen2.5-VL-3B-Instruct
+  frames_per_candidate: 8
+  minimum_confidence: 0.55
+  minimum_quality_score: 0.48
+  keep_all_candidates: false
+  use_4bit: true
+
+runtime:
+  verbose_console: false
+  store_detections: true
+  resume: true
+  save_debug_frames: false
+  export_rejected: true
+  progress_interval_seconds: 15
+
+profiling:
+  enabled: true
+  sample_interval_seconds: 5
+
+event_engine:
+  # Distances are normalized by the goalkeeper bounding-box diagonal.
+  contact_distance_factor: 1.15
+  release_distance_factor: 1.55
+  minimum_contact_frames: 2
+  # Conservative recovery for very fast saves visible in only one sampled frame.
+  single_frame_save_min_approach: 0.90
+  single_frame_save_min_identity: 0.75
+  single_frame_save_min_ball_confidence: 0.45
+  minimum_event_duration_seconds: 0.16
+  ball_lost_finalize_seconds: 0.55
+  trajectory_lookback_seconds: 1.20
+  event_cooldown_seconds: 1.00
+  minimum_event_score: 0.34
+  category_thresholds:
+    catch_or_control: 0.30
+    cross_claim_or_high_catch: 0.32
+    distribution: 0.22
+    keeper_clearance: 0.26
+    ball_contact: 0.35
+    save_or_deflection: 0.40
+    punch_clearance: 0.40
+    sweep_or_one_on_one: 0.40
+    diving_save: 0.45
+    interaction: 0.38
+  possession_bonus:
+    0.5: 0.02
+    1.5: 0.05
+    3.0: 0.08
+    5.0: 0.12
+  approach_speed_target: 0.75
+  departure_speed_target: 0.75
+  possession_min_seconds: 0.55
+  possession_duration_target: 0.80
+  keeper_motion_target: 0.75
+  high_ball_relative_y: 0.48
+  aerial_action_threshold: 0.42
+  punch_max_possession_seconds: 0.42
+  dive_lateral_motion_target: 0.75
+  distribution_departure_threshold: 0.45
+  distribution_min_possession_seconds: 0.75
+  strong_contact_identity: 0.70
+  strong_contact_ball_confidence: 0.40
+  strong_contact_frames: 3
+  strong_contact_max_distance: 0.35
+  strong_contact_bonus: 0.08
+  recovery_pass:
+    enabled: true
+    minimum_ball_confidence: 0.28
+    maximum_normalized_distance: 0.85
+    minimum_keeper_motion: 0.10
+    minimum_ball_motion: 0.35
+    minimum_approach_rate: 0.30
+    minimum_close_frames: 2
+    single_frame_min_ball_confidence: 0.50
+    group_gap_seconds: 1.25
+    existing_candidate_mask_seconds: 1.0
+    seconds_before: 8.0
+    seconds_after: 9.0

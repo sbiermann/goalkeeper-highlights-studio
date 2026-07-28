@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "goalkeeper-highlights"
+version = "0.13.2"
+description = "Open-source goalkeeper video analysis with YOLO, ByteTrack, Qwen and FFmpeg"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+license = {text = "Apache-2.0"}
+dependencies = [
+  "ultralytics>=8.4.0",
+  "opencv-python>=4.10",
+  "av>=14.0",
+  "PyYAML>=6.0",
+  "tqdm>=4.66",
+  "transformers>=4.49",
+  "accelerate>=1.2",
+  "qwen-vl-utils>=0.0.10",
+  "bitsandbytes>=0.45",
+  "Pillow>=10",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.34",
+  "pydantic>=2.10",
+  "psutil>=6.1",
+  "nvidia-ml-py>=12.560"
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.9"]
+
+[project.scripts]
+goalkeeper-highlights = "goalkeeper_highlights.cli:main"
+goalkeeper-highlights-server = "goalkeeper_highlights.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.package-data]
+goalkeeper_highlights = ["default.yaml"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

@@ -1,0 +1,11 @@
+.venv/
+.idea/
+__pycache__/
+*.py[cod]
+*.pt
+models/
+output/
+*.sqlite3
+*.log
+.pytest_cache/
+.ruff_cache/

@@ -1,0 +1,3 @@
+[console_scripts]
+goalkeeper-highlights = goalkeeper_highlights.cli:main
+goalkeeper-highlights-server = goalkeeper_highlights.server:main
