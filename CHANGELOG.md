@@ -1,3 +1,12 @@
+## 0.13.10
+- Extended merge logic (v0.13.10): automatic merging of events within 2.5s gap or with ball possession continuity.
+- Dynamic Clip End: clips now extend until a kick or throw is detected after ball control, reducing abrupt ends.
+- Interaction Validator V2: significantly reduced false positives by requiring genuine interaction dynamics (direction change, approach speed, motion) instead of mere proximity.
+- Expanded Debug Package: added `interaction_score`, `clip_end_reason`, and detailed merge history (`merged_from`, `merged_reason`) to every candidate.
+- Updated HTML Report: now displays merge information, interaction scores, and the reason for each clip end.
+- Added regression tests for 0.13.10 merge and interaction logic.
+- Debug archive renamed to `goalkeeper_highlights_debug_v0.13.10.zip`.
+
 ## 0.13.9
 
 - Reworked goalkeeper bootstrap into deferred, whole-observation evidence collection.
@@ -5,7 +14,7 @@
 - Added restart-context detection, return-to-goal evidence and longer logical-identity gaps.
 - Automatic selection can remain pending for up to 240 seconds before interactive fallback.
 - Keeper diagnostics now report `start_context`, `initial_keeper_position`, `automatic_selection_deferred` and `selection_confirmed_at`.
-- Debug archive/version metadata updated to 0.13.9.
+- Debug archive/version metadata updated to 0.13.10.
 - Restored the `source_selection` API used by `--only-last-source`.
 
 ## 0.13.8

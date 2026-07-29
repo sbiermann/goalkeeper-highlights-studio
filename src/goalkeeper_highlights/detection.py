@@ -44,9 +44,26 @@ def merge_candidates(items: list[Candidate], gap: float, duration: float) -> lis
         return []
     ordered = sorted(items, key=lambda c: c.start)
     merged = [ordered[0]]
+    # v0.13.10 extended merge logic
+    # Criteria: same keeper, ball possession continuity, gap <= 2.5s, same phase
+    # Note: current gap argument might be smaller than 2.5s, but we use the larger of them for logic
+    effective_gap = max(gap, 2.5)
+    
     for candidate in ordered[1:]:
         current = merged[-1]
-        if candidate.start <= current.end + gap:
+        
+        same_keeper = current.keeper_label == candidate.keeper_label
+        time_gap = candidate.start - current.end
+        
+        # Possession check: if both have possession or the gap is very small
+        # In the engine, 'distribution', 'catch_or_control' imply possession.
+        possession_categories = {"catch_or_control", "distribution", "cross_claim_or_high_catch"}
+        has_possession_flow = (current.category in possession_categories or candidate.category in possession_categories)
+        
+        # v0.13.10: Merge if same keeper, within gap, and possession flow
+        # If gap is very small (<0.5s), we merge even without explicit possession flow
+        if same_keeper and time_gap <= effective_gap and (has_possession_flow or time_gap < 0.5):
+            # print(f"[DEBUG_LOG] CONDITION MET: time_gap={time_gap} <= {effective_gap}")
             current.end = min(duration, max(current.end, candidate.end))
             current.action_start = min(current.action_start or current.trigger_time, candidate.action_start or candidate.trigger_time)
             current.action_end = max(current.action_end or current.trigger_time, candidate.action_end or candidate.trigger_time)
@@ -55,6 +72,7 @@ def merge_candidates(items: list[Candidate], gap: float, duration: float) -> lis
             current.identity_confidence = max(current.identity_confidence, candidate.identity_confidence)
             current.heuristic_score = max(current.heuristic_score, candidate.heuristic_score)
             current.quality_score = max(current.quality_score, candidate.quality_score)
+            
             if candidate.event_score > current.event_score:
                 current.category = candidate.category
                 current.description = candidate.description
@@ -63,15 +81,25 @@ def merge_candidates(items: list[Candidate], gap: float, duration: float) -> lis
                 current.departure_speed = candidate.departure_speed
                 current.direction_change = candidate.direction_change
                 current.keeper_motion = candidate.keeper_motion
-                current.possession_duration = candidate.possession_duration
+                current.possession_duration = max(current.possession_duration, candidate.possession_duration)
                 current.accepted = candidate.accepted
                 current.acceptance_threshold = candidate.acceptance_threshold
                 current.rejection_reason = candidate.rejection_reason
                 current.score_breakdown = dict(candidate.score_breakdown)
                 current.possession_bonus = candidate.possession_bonus
                 current.cooldown_penalty = candidate.cooldown_penalty
+            
             current.parent_candidate_ids = list(dict.fromkeys([*current.parent_candidate_ids, current.candidate_id, *candidate.parent_candidate_ids, candidate.candidate_id]))
-            current.lifecycle_events.append({"stage": "merge", "merged_candidate_id": candidate.candidate_id, "reason": "overlapping_or_within_merge_gap"})
+            current.merged_from.append(candidate.candidate_id)
+            current.merged_reason = "same_keeper_possession_flow" if has_possession_flow else "same_keeper_within_merge_window"
+            current.merged_duration = current.end - current.start
+            
+            current.lifecycle_events.append({
+                "stage": "merge", 
+                "merged_candidate_id": candidate.candidate_id, 
+                "reason": current.merged_reason
+            })
+            
             if candidate.min_normalized_distance < current.min_normalized_distance:
                 current.min_normalized_distance = candidate.min_normalized_distance
                 current.trigger_time = candidate.trigger_time
@@ -87,11 +115,34 @@ def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]
     validation = clips_cfg.get("interaction_validation", {}) or {}
     if not bool(validation.get("enabled", True)):
         return True
+    
     extreme_frames = int(validation.get("extreme_contact_frames", 80))
     suspicious_frames = int(validation.get("suspicious_contact_frames", 12))
     motion_floor = float(validation.get("minimum_motion_signal", 0.08))
-    trajectory = max(candidate.approach_speed, candidate.departure_speed, candidate.direction_change)
-    static_contact = candidate.contact_frames >= suspicious_frames and trajectory < motion_floor and candidate.keeper_motion < motion_floor
+    
+    # Interaction Score V2
+    # Base components: contact frames, trajectory dynamics, keeper motion
+    # Derive from existing scores
+    dynamics = max(candidate.approach_speed, candidate.departure_speed, candidate.direction_change)
+    
+    # Calculate interaction score [0.0 - 1.0]
+    # More weight on direction change and approach for saves
+    interaction_score = (
+        min(1.0, candidate.contact_frames / 10.0) * 0.3 +
+        min(1.0, dynamics / 0.5) * 0.4 +
+        min(1.0, candidate.keeper_motion / 0.5) * 0.3
+    )
+    candidate.interaction_score = interaction_score
+
+    static_contact = candidate.contact_frames >= suspicious_frames and dynamics < motion_floor and candidate.keeper_motion < motion_floor
+    
+    # New logic: genuine interaction requires either dynamics or enough contact frames with some motion
+    # or it's a confirmed possession
+    genuine_interaction = (
+        candidate.contact_frames >= 2 and 
+        (dynamics >= motion_floor or candidate.keeper_motion >= motion_floor or candidate.possession_duration >= 0.5)
+    )
+    
     central_min = float(validation.get("central_field_y_min", 0.36))
     central_max = float(validation.get("central_field_y_max", 0.64))
     irrelevant_restart = (
@@ -101,10 +152,19 @@ def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]
         and candidate.approach_speed < motion_floor
         and candidate.direction_change < motion_floor
     )
+    
+    if not genuine_interaction and not candidate.recovery_candidate:
+        candidate.accepted = False
+        candidate.rejection_reason = "insufficient_interaction_dynamics"
+        candidate.score_breakdown["interaction_validation"] = -1.0
+        return False
+
     if not static_contact and not irrelevant_restart and candidate.contact_frames < extreme_frames:
         return True
-    if not static_contact and not irrelevant_restart and (trajectory >= motion_floor or candidate.keeper_motion >= motion_floor):
+    
+    if not static_contact and not irrelevant_restart and (dynamics >= motion_floor or candidate.keeper_motion >= motion_floor):
         return True
+
     candidate.accepted = False
     candidate.rejection_reason = "irrelevant_outside_box_restart" if irrelevant_restart else "implausible_static_long_contact"
     candidate.score_breakdown["interaction_validation"] = -1.0
@@ -404,6 +464,19 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
         before = max(0.0, float(category_before.get(candidate.category, default_before)))
         after = max(0.0, float(category_after.get(candidate.category, default_after)))
+        
+        # v0.13.10 Dynamic Clip End
+        # If keeper controlled the ball, extend until restart (kick/throw) is detected
+        # In the engine, 'distribution' already implies a departure (kick/throw)
+        # We can use the departure_speed as a proxy for kick/throw in distribution category.
+        if candidate.category == "distribution" and candidate.departure_speed > 0.35:
+            candidate.clip_end_reason = "kick" if candidate.approach_speed < candidate.departure_speed else "throw"
+            # Keep the existing 'after' context from the departure point
+        elif candidate.category in {"catch_or_control", "cross_claim_or_high_catch"}:
+            # These usually end with the keeper holding the ball. 
+            # If they are NOT chained to a distribution, they might end abruptly.
+            candidate.clip_end_reason = "timeout"
+        
         candidate.start = max(0.0, action_start - before)
         candidate.end = min(duration, action_end + after)
         candidate.clip_boundary_reason = "observed_action_window"
@@ -424,6 +497,13 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                     previous.description = f"{previous.description}; continued with {candidate.category}".strip("; ")
                     previous.score_breakdown["chained_event_count"] = int(previous.score_breakdown.get("chained_event_count", 1)) + 1
                     previous.clip_boundary_reason = "chained_keeper_phase"
+                    
+                    # Update clip end reason for the chained sequence
+                    if candidate.category == "distribution" and candidate.departure_speed > 0.35:
+                        previous.clip_end_reason = "kick" if candidate.approach_speed < candidate.departure_speed else "throw"
+                    elif candidate.category in {"catch_or_control", "cross_claim_or_high_catch"}:
+                        previous.clip_end_reason = "timeout"
+                    
                     continue
 
         if candidate.end - candidate.start < minimum_duration:
@@ -783,7 +863,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                             print(f"Keeper tracking stable: Keeper #1, confidence {bootstrap_result['confidence']:.2f}")
                         tracking_stable_reported = True
 
-            # Version 0.13.9: keep gathering logical-person evidence beyond the initial
+            # Version 0.13.10: keep gathering logical-person evidence beyond the initial
             # window. This handles recordings that start after a break while the
             # goalkeeper is advanced near midfield. Manual selection is only used
             # after the configured deferred evidence horizon.

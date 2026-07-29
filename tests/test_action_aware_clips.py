@@ -8,7 +8,8 @@ from goalkeeper_highlights.models import Candidate
 
 
 def test_action_boundaries_drive_clip_window():
-    candidate = Candidate(90, 120, 100, 0.1, 1, accepted=True, category="save_or_deflection", action_start=96, action_end=104)
+    candidate = Candidate(90, 120, 100, 0.1, 1, accepted=True, category="save_or_deflection", action_start=96, action_end=104, contact_frames=2, approach_speed=0.2)
+    candidate.merged_from = []
     result = extend_and_chain_clip_windows([candidate], 200, {
         "seconds_before": 4,
         "seconds_after": 4,
@@ -27,11 +28,12 @@ def test_action_boundaries_drive_clip_window():
 
 def test_static_long_contact_is_rejected():
     candidate = Candidate(10, 20, 15, 0.0, 1, accepted=True, category="catch_or_control", contact_frames=120, approach_speed=0.0, departure_speed=0.0, direction_change=0.0, keeper_motion=0.0, action_start=14, action_end=16)
+    candidate.merged_from = []
     result = extend_and_chain_clip_windows([candidate], 100, {
         "interaction_validation": {"enabled": True, "extreme_contact_frames": 80, "minimum_motion_signal": 0.08},
     })
     assert result[0].accepted is False
-    assert result[0].rejection_reason == "implausible_static_long_contact"
+    assert result[0].rejection_reason == "insufficient_interaction_dynamics"
 
 
 def test_source_boundary_is_hard_by_default():

@@ -107,9 +107,26 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Debug archives must never contain video files.
 - OpenCV read-attempt configuration must be applied before importing cv2.
 
+## v0.13.10 invariants
+
+- Merge related candidates within 2.5s or with continuous possession flow to prevent fragmented clips.
+- Clips must only end after a detected restart (kick/throw) if ball control was established.
+- Interaction validation must use dynamic trajectory features (interaction_score) to reduce false positives.
+- Every candidate must record its clip_end_reason and merge ancestry.
+- HTML reports must display interaction scores and merge reasons.
+
+
 ## v0.13.9 invariants
 
 - Never hardcode match timestamps, filenames, track IDs or clip numbers.
 - A source may begin after a break with the goalkeeper near midfield. Do not require goal proximity during the initial frames.
 - Keep automatic selection pending while evidence is ambiguous; only use the interactive fallback after the configured deferred horizon.
 - Preserve restart-context and return-to-goal evidence in the debug package.
+
+## v0.13.10 invariants
+
+- Merge related candidates within 2.5s or with continuous possession flow to prevent fragmented clips.
+- Clips must only end after a detected restart (kick/throw) if ball control was established.
+- Interaction validation must use dynamic trajectory features (interaction_score) to reduce false positives.
+- Every candidate must record its clip_end_reason and merge ancestry.
+- HTML reports must display interaction scores and merge reasons.

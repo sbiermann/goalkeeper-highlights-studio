@@ -15,7 +15,7 @@ yolo:
   device: auto
 
 keeper:
-  # Version 0.13.9 keeps collecting evidence when a recording starts after a
+  # Version 0.13.10 keeps collecting evidence when a recording starts after a
   # break and the goalkeeper is temporarily far away from the goal.
   automatic_initial_detection: true
   bootstrap_seconds: 15.0

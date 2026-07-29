@@ -1,6 +1,6 @@
 # Goalkeeper Highlights Studio
 
-**Version 0.13.9**
+**Version 0.13.10**
 
 Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11 (Ultralytics), ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-Vision-Modelle.
 
@@ -9,11 +9,13 @@ Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-High
 - **Objekterkennung & Tracking**: Nutzt YOLO11 (Standard: `yolo11s.pt`) und ByteTrack für präzises Personen- und Ball-Tracking.
 - **Automatische Torwart-Erkennung**: Logische Torwart-Identität über wechselnde Track-IDs hinweg, basierend auf Evidenz (Trikot, Position, Bewegung, Ballkontakte).
 - **Ereignis-Engine**: Erkennt automatisch Paraden, Abfangen von Flanken, Faustabwehr, Klärungsaktionen und Spielaufbau.
+- **Intelligentes Merging (v0.13.10)**: Verhindert fragmentierte Clips durch Zusammenführung zusammengehöriger Aktionen (2,5s Fenster oder Ballbesitz-Flow).
+- **Dynamisches Clipende (v0.13.10)**: Verlängert Clips nach Ballbesitz automatisch bis zum Abschlag oder Abwurf.
 - **Kandidaten-Routing**: Effiziente Vorfilterung (HIGH/MEDIUM/LOW) zur Optimierung der (optionalen) KI-Bewertung.
 - **Recovery-Pass**: Zusätzlicher Durchlauf zur Erkennung möglicherweise übersehener Aktionen.
 - **Clip-Erstellung**: Automatischer Schnitt und Zusammenbau der Highlights mit FFmpeg.
 - **Umfangreiche Berichte**: HTML-Reports mit eingebetteten Videos (HTML5-Player), SQLite-Datenbank und JSON/CSV-Exporte.
-- **Diagnose**: Automatisches Debug-Paket für detaillierte Fehleranalysen ohne Videodateien.
+- **Diagnose**: Automatisches Debug-Paket (`goalkeeper_highlights_debug_v0.13.10.zip`) für detaillierte Fehleranalysen ohne Videodateien.
 
 *Hinweis: Dies ist ein experimentelles Projekt. Die Ergebnisse sollten stets manuell überprüft werden.*
 
@@ -89,7 +91,7 @@ goalkeeper-highlights analyze "C:\videorohdaten\match_2026" --decoder opencv --f
 
 ## Automatische Torwart-Erkennung
 
-In Version 0.13.9 wird der Torwart über eine längere Evidenzphase (bis zu 240 Sekunden) stabil identifiziert:
+In Version 0.13.10 wird der Torwart über eine längere Evidenzphase (bis zu 240 Sekunden) stabil identifiziert:
 
 - **Logische Identität**: Wechselnde Tracking-IDs werden zu einer stabilen Person (`Keeper #1`) zusammengeführt.
 - **Kein früher Ausschluss**: Eine Position weit vor dem Tor (z. B. bei Spielunterbrechungen) führt nicht mehr zum sofortigen Ausschluss.
@@ -112,7 +114,7 @@ Die Ergebnisse werden im Ordner `<video>_goalkeeper_highlights/` gespeichert:
 ## Debug-Paket
 
 Nach jedem erfolgreichen Lauf wird automatisch ein Debug-Paket erstellt:
-`goalkeeper_highlights_debug_v0.13.9.zip`
+`goalkeeper_highlights_debug_v0.13.10.zip`
 
 Dieses Paket enthält **keine Videodateien**, sondern wichtige Diagnosedaten:
 - `candidate_pipeline_trace.json`: Komplette Historie aller Kandidaten.

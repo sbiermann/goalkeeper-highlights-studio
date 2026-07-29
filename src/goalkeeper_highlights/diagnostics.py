@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Candidate
+from . import __version__
 
 
 def _candidate_record(index: int, candidate: Candidate) -> dict[str, Any]:
@@ -22,6 +23,9 @@ def _candidate_record(index: int, candidate: Candidate) -> dict[str, Any]:
         "rescued_by_second_pass": candidate.qwen_second_pass_rescued,
         "final_accepted": candidate.accepted,
         "rejection_reason": candidate.rejection_reason,
+        "interaction_score": candidate.interaction_score,
+        "clip_end_reason": candidate.clip_end_reason,
+        "merged_reason": candidate.merged_reason,
     }
     return data
 
@@ -172,8 +176,7 @@ def create_debug_package(output: Path, candidates: list[Candidate], timings: dic
         fields = ["stage", "index", "candidate_id", "trigger_time", "category", "accepted", "reason"]
         writer = csv.DictWriter(handle, fieldnames=fields); writer.writeheader(); writer.writerows(lifecycle_rows)
 
-    readme = """# Debug package v0.13.9
-
+    readme = f"# Debug package v{__version__}\n" + """
 This archive intentionally contains no video files.
 
 Missed-save investigation order:
@@ -192,7 +195,7 @@ to detection, keeper identity, recovery, merge, routing or final classification.
     (debug_dir / "README_DEBUG.md").write_text(readme, encoding="utf-8")
 
     store.checkpoint()
-    archive = output / "goalkeeper_highlights_debug_v0.13.9.zip"
+    archive = output / f"goalkeeper_highlights_debug_v{__version__}.zip"
     excluded_suffixes = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"}
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for path in sorted(output.rglob("*")):

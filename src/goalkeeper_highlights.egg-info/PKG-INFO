@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: goalkeeper-highlights
-Version: 0.13.9
+Version: 0.13.10
 Summary: Open-source goalkeeper video analysis with YOLO, ByteTrack, Qwen and FFmpeg
 License: Apache-2.0
 Requires-Python: <3.13,>=3.11
@@ -28,404 +28,161 @@ Dynamic: license-file
 
 # Goalkeeper Highlights Studio
 
-**Version 0.13.5**
+**Version 0.13.10**
 
-Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11, ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-VL.
+Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11 (Ultralytics), ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-Vision-Modelle.
 
-## Neu in 0.13.5
+## Hauptfunktionen
 
-- **Korrekte Routing-Statistiken**: Qwen-Aufrufe werden nur gezählt, wenn das Modell tatsächlich ausgeführt wurde.
-- **Getrennte Zähler**: Direkte HIGH-Annahmen, frühe LOW-Ablehnungen, erster Qwen-Durchlauf, zweiter Qwen-Durchlauf und durch den zweiten Durchlauf gerettete Highlights werden separat ausgewiesen.
-- **Gemessene Laufzeiten**: Heuristisches Scoring sowie erster und zweiter Qwen-Durchlauf erhalten eigene Laufzeitwerte.
-- **Bessere Diagnose**: Kandidaten speichern, welche Qwen-Durchläufe ausgeführt wurden, ob der zweite Durchlauf ein Highlight gerettet hat und wie lange die Klassifizierung dauerte.
-- **Robuster Retry-Mechanismus**: Unsichere, nicht parsebare, kurze oder aus der Recovery stammende Kandidaten werden kontrolliert behandelt, ohne Endlosschleife.
-- **Mehr Tests**: Erweiterte Testabdeckung für Routing, Retry-Entscheidungen und Performance-Zähler.
+- **Objekterkennung & Tracking**: Nutzt YOLO11 (Standard: `yolo11s.pt`) und ByteTrack für präzises Personen- und Ball-Tracking.
+- **Automatische Torwart-Erkennung**: Logische Torwart-Identität über wechselnde Track-IDs hinweg, basierend auf Evidenz (Trikot, Position, Bewegung, Ballkontakte).
+- **Ereignis-Engine**: Erkennt automatisch Paraden, Abfangen von Flanken, Faustabwehr, Klärungsaktionen und Spielaufbau.
+- **Intelligentes Merging (v0.13.10)**: Verhindert fragmentierte Clips durch Zusammenführung zusammengehöriger Aktionen (2,5s Fenster oder Ballbesitz-Flow).
+- **Dynamisches Clipende (v0.13.10)**: Verlängert Clips nach Ballbesitz automatisch bis zum Abschlag oder Abwurf.
+- **Kandidaten-Routing**: Effiziente Vorfilterung (HIGH/MEDIUM/LOW) zur Optimierung der (optionalen) KI-Bewertung.
+- **Recovery-Pass**: Zusätzlicher Durchlauf zur Erkennung möglicherweise übersehener Aktionen.
+- **Clip-Erstellung**: Automatischer Schnitt und Zusammenbau der Highlights mit FFmpeg.
+- **Umfangreiche Berichte**: HTML-Reports mit eingebetteten Videos (HTML5-Player), SQLite-Datenbank und JSON/CSV-Exporte.
+- **Diagnose**: Automatisches Debug-Paket (`goalkeeper_highlights_debug_v0.13.10.zip`) für detaillierte Fehleranalysen ohne Videodateien.
 
-Diese Version wurde als Audit- und Stabilisierungsrelease gegen die Anforderungen aus 0.13.0 bis 0.13.3 geprüft. Zusätzlich ist die gezielte Analyse nur der letzten natürlich sortierten Quelldatei verfügbar.
+*Hinweis: Dies ist ein experimentelles Projekt. Die Ergebnisse sollten stets manuell überprüft werden.*
 
-## Neu in 0.13.3
+## Funktionsweise der Pipeline
 
-- **Heuristisches Routing**: Intelligente Vorfilterung von Kandidaten in die Kategorien HIGH, MEDIUM und LOW.
-- **Geschwindigkeitsoptimierung**: HIGH-Kandidaten werden direkt akzeptiert und LOW-Kandidaten früh verworfen, wodurch teure Qwen-Aufrufe eingespart werden.
-- **Zweiter Qwen-Durchlauf**: Bei unsicheren Ergebnissen (MEDIUM oder unklare Konfidenz) erfolgt automatisch ein zweiter Durchlauf mit erweitertem zeitlichem Kontext (+2s vor/nach) und mehr Frames zur präziseren Analyse.
-- **Detaillierte Statistiken**: Erweiterter Performance-Report mit routingbezogenen Kennzahlen (HIGH/MEDIUM/LOW, eingesparte Aufrufe, gerettete Highlights).
-- **Flexible Konfiguration**: Alle Schwellenwerte für das Routing und den Retry-Mechanismus sind in der `default.yaml` anpassbar.
+1. **Quellenprüfung**: Einlesen einzelner Videos oder ganzer Verzeichnisse (natürliche Sortierung).
+2. **Virtuelle Timeline**: Erstellung einer konsistenten globalen Timeline über alle Quelldateien hinweg.
+3. **Detektion & Tracking**: Lokalisierung von Spielern, Torhütern und dem Ball.
+4. **Torwart-Identifikation**: Sammeln von Evidenz zur stabilen Identifizierung des Torwarts (`Keeper #1`).
+5. **Ereigniserkennung**: Analyse von Trajektorien und Interaktionen zur Identifizierung potenzieller Highlights (Kandidaten).
+6. **Kandidaten-Validierung & Merging**: Filtern von Rauschen und Zusammenführen zeitlich zusammenhängender Aktionen.
+7. **Recovery**: Suche nach missed actions in verdächtigen Zeitfenstern.
+8. **Routing & KI-Bewertung**: Heuristisches Scoring und optionale Bewertung durch Vision-Modelle (z. B. Qwen).
+9. **Clip-Export**: Erstellung der Einzelclips und des finalen Highlight-Videos.
 
-## Neu in 0.12
+## Voraussetzungen
 
-- komplette Spiele können aus einem Verzeichnis mit mehreren aufeinanderfolgenden Videodateien analysiert werden
-- natürliche Dateisortierung, z. B. `MVI_0540.MP4`, `MVI_0541.MP4`, `MVI_0542.MP4`
-- Dateien werden nur direkt aus dem angegebenen Verzeichnis gelesen, nicht rekursiv aus Unterordnern
-- gemeinsame globale Timeline für Torwarterkennung, Ereignisse und dateiübergreifende Spielsituationen
-- neue `source_manifest.json` mit Quelldateien, Dauer und globalen Zeitversätzen
-- Einzeldatei-Aufrufe bleiben vollständig kompatibel
+- **Windows 11** (primäre Plattform)
+- **Python 3.11 oder 3.12** (gemäß `pyproject.toml`)
+- **FFmpeg & FFprobe**: Müssen im System-Pfad erreichbar sein.
+- **NVIDIA GPU (optional)**: Für beschleunigte Detektion (CUDA) und Encoding (NVENC).
+- **Internetzugang (optional)**: Nur für den Erst-Download der Modelle; die Analyse läuft lokal.
 
-## Änderungen aus 0.10
-
-- automatische Torwarterkennung in einem konfigurierbaren Anfangsfenster
-- Bewertung über Trikotfarb-Einzigartigkeit, Kameranähe, Torbereich, Bewegungsmuster, Ballkontakte und Track-Persistenz
-- manuelle Auswahl nur noch als Fallback bei zu geringer Konfidenz
-- stabile fachliche Identität `Keeper #1`, unabhängig von wechselnden ByteTrack-IDs
-- neue Debug-Ausgaben `analysis/goalkeeper_detection.html` und `analysis/goalkeeper_detection.json`
-- bestätigter Torwart-Ballkontakt verhindert False Negatives bei ruhigen Abspielen und Klärungen
-- neue Kategorie `keeper_clearance`
-- niedrigere, event-spezifische Schwellen für `distribution` und `keeper_clearance`
-- verworfene Kandidaten werden standardmäßig immer als Video und JSON exportiert
-- `--no-export-rejected` deaktiviert den Export ausdrücklich
-- schnelles FFmpeg-Input-Seeking: `-ss` steht vor `-i`
-- automatische NVENC-Nutzung, falls `h264_nvenc` verfügbar ist
-- parallele Clip-Erstellung, standardmäßig mit zwei Jobs
-- finales Highlightvideo wird normalerweise per Stream Copy zusammengefügt
-- Modi `accurate` und `fast`
-- Performancewerte im HTML-Report und in `analysis/performance.json`
-- verworfene Clips sind direkt im HTML-Report abspielbar
-
-## Installation unter Windows
+## Installation
 
 ```powershell
+# Repository klonen oder in das Verzeichnis wechseln
 cd C:\goalkeeper-highlights-studio
+
+# Virtuelle Umgebung erstellen
+python -m venv .venv
+
+# Umgebung aktivieren
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e .
+
+# Pip aktualisieren und Projekt im Editable-Modus installieren
+python -m pip install --upgrade pip
+pip install -e .
 ```
 
-Versionsprüfung:
+## Schnellstart
+
+Starten Sie eine Analyse für ein einzelnes Video oder ein Verzeichnis mit mehreren Segmenten:
 
 ```powershell
-python -c "import importlib.metadata; print(importlib.metadata.version('goalkeeper-highlights'))"
+goalkeeper-highlights analyze "C:\video\spiel_segment_01.mp4" --overwrite
 ```
 
-Erwartete Ausgabe:
-
-```text
-0.13.5
-```
-
-## Empfohlener Analyselauf
+Oder für ein ganzes Verzeichnis:
 
 ```powershell
-goalkeeper-highlights analyze `
-  "C:\videorohdaten\158_0726\FCWittlinge-SFETeil1.MP4" `
-  --decoder opencv `
-  --frame-stride 2 `
-  --overwrite
+goalkeeper-highlights analyze "C:\videorohdaten\match_2026" --decoder opencv --frame-stride 2 --overwrite
 ```
 
-Verworfene Szenen landen standardmäßig unter `rejected/`. Nur bei ausdrücklichem Verzicht:
+## CLI-Optionen (Auszug)
+
+| Option | Beschreibung |
+| :--- | :--- |
+| `video` | Pfad zu einer Videodatei oder einem Verzeichnis. |
+| `--output` | Zielverzeichnis für die Ergebnisse. |
+| `--config` | Pfad zu einer benutzerdefinierten `config.yaml`. |
+| `--decoder` | `opencv` (Standard) oder `pyav`. |
+| `--frame-stride` | Analysiert nur jedes N-te Frame (Standard: 2). |
+| `--overwrite` | Überschreibt vorhandene Ergebnisse im Ausgabeordner. |
+| `--qwen` / `--no-qwen` | Aktiviert/Deaktiviert die optionale Qwen-Vision-Bewertung. |
+| `--only-last-source` | Analysiert nur die letzte Datei eines Verzeichnisses. |
+| `--verbose` | Detaillierte Konsolenausgabe für Diagnosezwecke. |
+| `--clip-mode` | `accurate` (bildgenau, Re-Encoding) oder `fast` (Keyframe-Schnitt). |
+| `--parallel-jobs` | Anzahl paralleler FFmpeg-Prozesse für den Clip-Export. |
+| `--encoder` | Video-Encoder (z. B. `h264_nvenc`, `libx264`). |
+| `--ffmpeg` | Pfad zur FFmpeg-Executable. |
+| `--ffprobe` | Pfad zur FFprobe-Executable. |
+
+## Automatische Torwart-Erkennung
+
+In Version 0.13.10 wird der Torwart über eine längere Evidenzphase (bis zu 240 Sekunden) stabil identifiziert:
+
+- **Logische Identität**: Wechselnde Tracking-IDs werden zu einer stabilen Person (`Keeper #1`) zusammengeführt.
+- **Kein früher Ausschluss**: Eine Position weit vor dem Tor (z. B. bei Spielunterbrechungen) führt nicht mehr zum sofortigen Ausschluss.
+- **Deferred Selection**: Die Entscheidung wird so lange wie möglich offen gehalten, bis genügend Evidenz vorliegt.
+- **Manueller Fallback**: Sollte die automatische Erkennung nach dem Evidenz-Horizont nicht eindeutig sein, öffnet sich (bei aktivierter Option) ein Fenster zur manuellen Markierung.
+
+## Ausgaben und Reports
+
+Die Ergebnisse werden im Ordner `<video>_goalkeeper_highlights/` gespeichert:
+
+- **goalkeeper_highlights.mp4**: Das fertige Highlight-Video.
+- **report.html**: Interaktiver Bericht mit allen Szenen und Begründungen.
+- **clips/**: Die einzelnen Highlight-Szenen als MP4.
+- **rejected/**: Ausgefilterte Szenen (sofern nicht mit `--no-export-rejected` deaktiviert).
+- **analysis.sqlite3**: Die vollständige Analyse-Datenbank.
+- **events.json / events.csv**: Maschinenlesbare Liste der Ereignisse.
+- **source_manifest.json**: Mapping der lokalen Video-Zeitstempel zur globalen Match-Timeline.
+- **analysis/**: Unterordner mit detaillierten Web-Ansichten (`goalkeeper_detection.html`, `timeline.html`, `score_histogram.html`) und Diagnosedaten (`performance.json`, `goalkeeper_detection.json`).
+
+## Debug-Paket
+
+Nach jedem erfolgreichen Lauf wird automatisch ein Debug-Paket erstellt:
+`goalkeeper_highlights_debug_v0.13.10.zip`
+
+Dieses Paket enthält **keine Videodateien**, sondern wichtige Diagnosedaten:
+- `candidate_pipeline_trace.json`: Komplette Historie aller Kandidaten.
+- `candidate_lifecycle.csv`: Tabellarischer Lebenslauf jeder Szene.
+- `suspicious_windows.json`: Unversorgte Zeitfenster mit hoher Ball/Torwart-Aktivität.
+- `effective_config.json`: Die tatsächlich verwendete Konfiguration.
+- `pipeline_summary.json`: Laufzeiten und Statistiken.
+- `keeper_reid_events.json`: Protokoll der Torwart-Identitätswechsel.
+
+## Optionale Qwen-Bewertung
+
+Zur Steigerung der Genauigkeit kann ein Vision-Modell (Qwen) zugeschaltet werden (`--qwen`).
+- **Routing**: Kandidaten werden in HIGH (direkt akzeptiert), MEDIUM (KI-Prüfung) und LOW (direkt verworfen) eingeteilt.
+- **Retry**: Bei unsicheren KI-Ergebnissen erfolgt automatisch ein zweiter Durchlauf mit mehr Kontextframes.
+- **Lokal**: Das Modell wird auf der lokalen GPU ausgeführt (empfohlen wird eine NVIDIA GPU mit ausreichend VRAM, z. B. 12GB+ für flüssige Verarbeitung).
+
+## OpenCV und FFmpeg Leseversuche
+
+Bei einigen Kamerasystemen kann es zu Lesefehlern in der Stream-Struktur kommen. Über eine Umgebungsvariable können die Leseversuche gesteuert werden:
 
 ```powershell
-goalkeeper-highlights analyze "C:\video\match.mp4" --no-export-rejected --overwrite
+# Beispiel zur Erhöhung der Leseversuche in der PowerShell
+$env:GOALKEEPER_OPENCV_READ_ATTEMPTS = "131072"
 ```
+*Standardwert: 65536.*
 
+## Bekannte Einschränkungen
 
-## Mehrere Videodateien aus einem Verzeichnis
+- **Perspektive**: Eine Kameraposition direkt hinter dem Tor (leicht erhöht) wird vorausgesetzt.
+- **Ball-Tracking**: Bei sehr kleinen, schnellen oder verdeckten Bällen kann die Erkennung lückenhaft sein.
+- **Spielfortsetzung**: Clips enden manchmal kurz nach der Torwartaktion, bevor das Spiel vollständig fortgesetzt wurde.
+- **Rechenlast**: Die Analyse (insbesondere mit Qwen) ist sehr rechenintensiv.
+- **Fehlalarme**: Trotz Filterung können Szenen enthalten sein, die keine echten Highlights darstellen.
 
-Version 0.12.0 akzeptiert neben einer einzelnen Videodatei auch ein Verzeichnis:
+## Roadmap
 
-```powershell
-goalkeeper-highlights analyze `
-  "C:\videorohdaten\Spiel_2026-07-27" `
-  --decoder opencv `
-  --frame-stride 2 `
-  --overwrite
-```
+Geplante Verbesserungen umfassen unter anderem:
+- Unterstützung für seitliche Kameraperspektiven.
+- Verbesserte Erkennung von 1-gegen-1 Situationen.
+- Webbasiertes Interface zur manuellen Nachbearbeitung.
 
-Unterstützte Formate sind `.mp4`, `.mov`, `.mkv`, `.m4v` und `.avi`. Es werden ausschließlich Dateien direkt im angegebenen Verzeichnis verarbeitet. Unterverzeichnisse, ZIP-Dateien und bereits erzeugte Dateien mit `_goalkeeper_highlights` im Namen werden ignoriert.
-
-Die Sortierung erfolgt natürlich nach Dateinamen:
-
-```text
-MVI_0540.MP4
-MVI_0541.MP4
-MVI_0542.MP4
-MVI_0543.MP4
-MVI_0544.MP4
-```
-
-Die Dateien werden verlustfrei zu einer internen Timeline verbunden. Dadurch bleiben automatische Torwarterkennung, globale Zeitstempel und Situationen über eine Dateigrenze hinweg konsistent. Die Kamera-Dateien müssen dafür dieselbe Auflösung, Bildrate sowie Video- und Audio-Codecs verwenden. Das ist bei fortlaufenden Segmenten derselben Kamera normalerweise der Fall.
-
-Der Ausgabeordner heißt bei einer Verzeichnisanalyse beispielsweise:
-
-```text
-Spiel_2026-07-27_goalkeeper_highlights/
-```
-
-Zusätzlich wird `source_manifest.json` erzeugt. Es enthält die Reihenfolge, Einzeldauer und globale Startzeit jeder Quelldatei.
-
-
-### Nur die letzte Quelldatei analysieren
-
-Für eine gezielte Nachanalyse des letzten Kamerasegments:
-
-```powershell
-goalkeeper-highlights analyze `
-  "C:\videorohdaten\158_0726" `
-  --only-last-source `
-  --decoder opencv `
-  --frame-stride 2 `
-  --overwrite
-```
-
-Die Auswahl erfolgt nach derselben natürlichen Sortierung wie bei der vollständigen Verzeichnisanalyse. Standardmäßig wird in `<Verzeichnis>_last_source_goalkeeper_highlights` geschrieben.
-
-## FFmpeg-Modi
-
-### Accurate, Standard
-
-```powershell
-goalkeeper-highlights analyze "C:\video\match.mp4" --clip-mode accurate --encoder auto --parallel-jobs 2 --overwrite
-```
-
-- schnelles Input-Seeking
-- bildgenauer Schnitt durch Re-Encoding
-- automatische Wahl von `h264_nvenc`, sonst `libx264`
-- finaler Zusammenschnitt ohne erneutes Encoding, sofern kompatibel
-
-### Fast
-
-```powershell
-goalkeeper-highlights analyze "C:\video\match.mp4" --clip-mode fast --parallel-jobs 2 --overwrite
-```
-
-- nutzt `-c copy`
-- sehr schnell
-- Schnitt beginnt am passenden Keyframe und kann etwas früher einsetzen
-
-## Ausgabe
-
-```text
-<video>_goalkeeper_highlights/
-  clips/
-  rejected/
-  analysis/
-    goalkeeper_detection.html
-    goalkeeper_detection.json
-    keeper_tracks.csv
-    performance.json
-    score_histogram.html
-    timeline.html
-  analysis.sqlite3
-  events.csv
-  events.json
-  goalkeeper_highlights.mp4
-  report.html
-```
-
-
-## Automatische Torwarterkennung
-
-Vor der Ereigniserkennung sammelt Version 0.10 standardmäßig in den ersten acht Sekunden mehrere Beobachtungen pro Spieler. Die Auswahl erfolgt nicht anhand eines einzelnen Bildes, sondern aus mehreren Merkmalen:
-
-- deutlich anderes Trikot als die Feldspieler
-- große Bounding Box und Nähe zur hinter dem Tor stehenden Kamera
-- Aufenthalt in einem konfigurierten Torbereich
-- für Torhüter typisches Bewegungsmuster
-- beobachtete Ballkontakte
-- Persistenz des Tracks über das Anfangsfenster
-
-Die Auswahl wird als stabile fachliche Identität `Keeper #1` gespeichert. ByteTrack darf später intern von Track 81 auf Track 214 wechseln; im Report bleibt es dennoch `Keeper #1`. Wenn die automatische Erkennung nicht sicher genug ist, öffnet sich weiterhin die manuelle Auswahl.
-
-Konfiguration:
-
-```yaml
-keeper:
-  automatic_initial_detection: true
-  bootstrap_seconds: 8.0
-  bootstrap_min_score: 0.48
-  bootstrap_min_confidence: 0.52
-  interactive_selection: true
-```
-
-Die Begründung der Auswahl steht nach dem Lauf in `analysis/goalkeeper_detection.html`.
-
-## Ereignislogik
-
-Version 0.10 bewertet unter anderem:
-
-- Ballnähe und bestätigte Kontaktframes
-- Ballkonfidenz
-- Torwartidentität
-- Anflug und Abflug
-- Richtungswechsel
-- Ballbesitzdauer
-- Torwartbewegung
-- hohen Ball beziehungsweise Flanke
-
-Eine Sicherheitsregel akzeptiert bestätigten Torwart-Ballkontakt auch dann, wenn Bewegungs- oder Trajektoriemerkmale schwach sind. Das betrifft besonders kontrollierte Abspiele und Klärungen.
-
-## CUDA und NVENC
-
-YOLO verwendet bei `device: auto` eine verfügbare CUDA-GPU. Für FFmpeg prüft `encoder: auto`, ob `h264_nvenc` vorhanden ist. Kontrolle:
-
-```powershell
-ffmpeg -hide_banner -encoders | Select-String nvenc
-```
-
-Manuelle CPU-Nutzung:
-
-```powershell
-goalkeeper-highlights analyze "C:\video\match.mp4" --encoder libx264 --overwrite
-```
-
-## Entwicklung
-
-```powershell
-python -m pytest -q
-```
-
-Architektur- und Entwicklungsregeln stehen in `AGENTS.md` und `docs/architecture.md`. Geplante Arbeiten stehen in `ROADMAP.md`.
-
-## Category-specific and dynamic clip windows (0.10.2)
-
-Standalone actions use category-specific context. Catches receive more lead-in so the incoming ball is visible, while distributions end shortly after the pass. A later goalkeeper event can still join and extend the same phase of play.
-
-```yaml
-clips:
-  category_pre_roll_seconds:
-    catch_or_control: 10.0
-    keeper_clearance: 8.0
-    distribution: 5.0
-  category_post_roll_seconds:
-    catch_or_control: 4.0
-    keeper_clearance: 4.0
-    distribution: 2.0
-  activity_tail_seconds: 0.0
-  continuation_gap_seconds: 15.0
-  final_keeper_contact_tail_seconds: 8.0
-  max_dynamic_clip_seconds: 40.0
-```
-
-## Console output
-
-Version 0.10.4 uses a clean single-line terminal display without internal tqdm counters. During analysis it shows percentage, processed video minutes, ETA, candidate count and realtime factor. Separate phases are shown for candidate selection, clip creation and final video generation. A structured summary is printed at the end. Detailed detector, profiling and FFmpeg output is available with:
-
-```powershell
-goalkeeper-highlights analyze "C:\video\match.mp4" --verbose
-```
-
-Clip windows are category-specific. `catch_or_control` starts up to 10 seconds before the trigger, while a standalone `distribution` uses a shorter 5-second pre-roll and 2-second post-roll. Chained goalkeeper situations still keep the longer dynamic ending.
-
-
-### Example default output (0.10.4)
-
-```text
-Analyse     ██████████████████░░░░░░░░░░░░░░  56% | 24.0/42.9 min | ETA 10:41 | Kandidaten 4 | 1.77x
-
-================================================================
-Analyse abgeschlossen
-================================================================
-
-Video
-  FCWittlinge-SFETeil1.mp4
-
-Ergebnis
-  Kandidaten:          18
-  Highlights:          11
-  Verworfen:           0
-  Zusammengeführt:     7
-
-Torwart
-  Identität:           Keeper #1
-  Konfidenz:           91 %
-  Re-Identifikationen: 42
-
-Leistung
-  Analysezeit:         24:51
-  Geschwindigkeit:     1.73× Echtzeit
-  Gesamtzeit:          25:04
-
-FFmpeg
-  Clip-Erstellung:     00:11
-  Zusammenfügen:       00:01
-  Encoder:             h264_nvenc
-  Clip-Modus:          accurate
-  Parallele Jobs:      2
-
-Erstellt
-  ✓ Einzelclips
-  ✓ Rejected-Clips
-  ✓ Gesamtvideo
-  ✓ HTML-Report
-  ✓ CSV/JSON-Auswertung
-  ✓ Analyse-Datenbank
-
-Ausgabeverzeichnis
-  C:\video\match_goalkeeper_highlights
-================================================================
-```
-
-Use `--verbose` only when detector profiling, individual re-identifications or FFmpeg commands are needed.
-
-## Virtuelle Multi-Datei-Timeline (0.12.0)
-
-Bei einem Verzeichnis werden die Originalvideos natürlich nach Dateinamen sortiert und direkt nacheinander decodiert. Es wird **keine** temporäre `source_timeline.mp4` mehr erzeugt. Das spart Startzeit, SSD-Schreibzugriffe und mehrere Gigabyte temporären Speicher. Globale Zeitstempel, Qwen-Frames und Clips über Dateigrenzen bleiben erhalten.
-
-Beispielreihenfolge:
-
-```text
-FCWittlingen-SFETeil11.MP4
-FCWittlingen-SFETeil21.MP4
-FCWittlingen-SFETeil22-Tonasync.mp4
-```
-
-Die Datei `source_manifest.json` dokumentiert die Reihenfolge, Dauer und globalen Zeitbereiche aller Quelldateien. Ohne `--verbose` zeigt die CLI eigene Phasen für Quellenprüfung, virtuelle Timeline, Analyse, Clip-Erstellung und Gesamtvideo.
-
-
-## Source ordering check (0.13.0)
-
-When a directory is analyzed, the exact natural filename order is printed before probing and analysis. This makes wrong installation paths or stale editable installs immediately visible. The runtime defensively sorts the source list twice and never relies on filesystem enumeration order.
-
-### Robust source ordering (0.13.0)
-
-For numbered camera files, the final numeric block in the filename defines the recording order. This deliberately tolerates small spelling differences in the text prefix, for example:
-
-```text
-FCWittlingen-SFETeil1.MP4
-FCWittlingen-SFETeil21.MP4
-FCWittlinen-SFETeil22-Tonasync.mp4
-```
-
-The resolved order is printed before probing and analysis.
-
-
-## Action-aware clip planning (0.13.0)
-
-Version 0.13.0 no longer cuts every highlight from a fixed number of seconds around the trigger. The temporal event engine records the first meaningful ball approach and the end of the detected goalkeeper action. The clip planner adds only category-specific context around those observed boundaries.
-
-This improves both directions: a save can start early enough to show the shot and continue until the action is complete, while a simple distribution no longer contains a long idle preparation. A following goalkeeper event within the configured continuation gap extends the same clip, for example `distribution -> turnover -> shot -> catch`.
-
-By default clips never cross from one source file into the next:
-
-```yaml
-clips:
-  allow_cross_source_clips: false
-```
-
-Enable this only when camera files are known to be consecutive chunks without a pause. File changes representing half-time remain hard boundaries.
-
-False positives from static or incorrect ball tracks are filtered by `clips.interaction_validation`. Fast saves with only one sampled contact frame have a separate conservative recovery rule under `event_engine.single_frame_save_*`.
-
-
-## Recovery and robust decoding (0.13.1)
-
-A second, generic pass scans the complete stored detection timeline for close keeper/ball geometry and meaningful keeper movement not already covered by an event. It does not contain game-specific filenames or timestamps. OpenCV decoding uses a higher FFmpeg packet-read limit and automatically reopens the source after recoverable read failures.
-
-
-## Debug package for missed saves (0.13.7)
-
-Every completed analysis creates `goalkeeper_highlights_debug_v0.13.9.zip` in the output directory. The archive deliberately excludes all video files. Upload this archive together with your manual assessment of the generated clips. It contains the final and rejected candidate decisions, raw analysis database, effective configuration, routing and Qwen details, performance information, and `uncovered_suspicious_windows.json` with timeline regions that may contain missed short goalkeeper actions.
-
-
-## 0.13.7 missed-save diagnostics
-
-The automatic goalkeeper bootstrap now observes a longer configurable window and only accepts an automatic result when its score, confidence and margin to the runner-up are sufficient. Strong suspicious windows that are not covered by normal candidates can become conservative recovery candidates. The generated `goalkeeper_highlights_debug_v0.13.9.zip` contains no video files and records every candidate stage, keeper track changes and ball-detection gaps.
-
-
-## 0.13.8 keeper evidence and full trace
-
-Automatic keeper selection now groups temporary ByteTrack IDs into logical identities and evaluates goalkeeper-like behaviour over up to 60 seconds. The score includes shirt uniqueness, central goal-axis occupancy, isolation, depth stability, horizontal patrol behaviour, ball contacts and persistence. If the result is still ambiguous, the interactive selector remains the safe fallback and the exact reason is written to the debug package.
-
-The debug archive contains `candidate_pipeline_trace.json`, `extended_recovery_analysis.json`, ranking history, identity timelines and all candidate stages. No video files are included. OpenCV packet-read tolerance is forced before importing OpenCV; override it with `GOALKEEPER_OPENCV_READ_ATTEMPTS` only when required.
-
-## 0.13.9 deferred goalkeeper evidence
-
-The automatic goalkeeper resolver no longer assumes that the goalkeeper must already be positioned near the goal when a source starts. It keeps logical-person evidence open for up to `keeper.bootstrap_max_seconds` (240 seconds by default), detects likely restart/break contexts, reduces the early midfield-position penalty, and adds positive evidence when the same logical identity returns to a goal region. The manual click fallback is only shown after the deferred evidence horizon remains inconclusive.
+---
+*Weitere Informationen finden Sie in den Dateien `AGENTS.md` (Entwicklerrichtlinien) und `CHANGELOG.md`.*

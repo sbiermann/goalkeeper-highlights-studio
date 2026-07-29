@@ -110,10 +110,19 @@ def write_reports(output: Path, candidates: list[Candidate], timings: dict | Non
     def card(c: Candidate, rejected_card: bool = False) -> str:
         state = "rejected-event" if rejected_card else "event"
         reason = f'<p class="reason">Ablehnung: {html.escape(c.rejection_reason or "gefiltert")}</p>' if rejected_card else ""
+        
+        merge_info = ""
+        if c.merged_from:
+            merge_info = f'<span>Merge: {len(c.merged_from)} Kandidaten ({html.escape(c.merged_reason)})</span>'
+        
+        clip_end_info = f'<span>Clip-Ende: {html.escape(c.clip_end_reason)}</span>'
+        interaction_info = f'<span>Interaktions-Score: {_score(c.interaction_score)}</span>'
+        
         return (
             f'<article class="{state}"><div><strong>{html.escape(c.category or "Torwartaktion")}</strong><span>{_fmt(c.start)}–{_fmt(c.end)}</span></div>'
             f'<div class="scores"><span>{html.escape(c.keeper_label)}</span><span>Qualität {_score(c.quality_score)}</span><span>Event {_score(c.event_score)}</span><span>Schwelle {_score(c.acceptance_threshold)}</span><span>Identität {_score(c.identity_confidence)}</span><span>Ball {_score(c.ball_confidence)}</span></div>'
             f'<div class="scores"><span>Kontaktframes {c.contact_frames}</span><span>Kontrolle {c.possession_duration:.2f}s</span><span>Besitzbonus +{c.possession_bonus:.2f}</span><span>Anflug {c.approach_speed:.2f}</span><span>Abflug {c.departure_speed:.2f}</span><span>Richtungswechsel {_score(c.direction_change)}</span><span>Torwartbewegung {c.keeper_motion:.2f}</span></div>'
+            f'<div class="scores">{interaction_info} {clip_end_info} {merge_info}</div>'
             f'<p>{html.escape(c.description or "Automatisch erkannte Szene")}</p>{reason}{_breakdown(c)}{_video(c, output)}</article>'
         )
 

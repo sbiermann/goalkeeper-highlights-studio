@@ -1,10 +1,17 @@
-Current stabilization release: 0.13.9, focused on keeper identity and missed-save recovery.
+Current stabilization release: 0.13.10, focused on action merging, dynamic clip endings and false-positive reduction.
 
 # Roadmap
 
-## Current focus: missed goalkeeper saves
+## Current focus: Action Merging and False Positive Reduction (v0.13.10)
+- Automatic merging of related events within 2.5s or via possession flow.
+- Improved interaction validation to reduce non-action clips.
+- Dynamic clip ends triggered by detected restarts (kick/throw).
 
-Version 0.13.6 establishes complete diagnostics. Following releases should use the generated non-video debug package and manual clip feedback to improve recall of short saves before adding unrelated features.
+## 0.13.x
+- Version 0.13.6 established complete diagnostics. 
+- Version 0.13.10 introduced intelligent merging and action-aware clips.
+- Version 0.13.9 improved goalkeeper identity and selection logic.
+- Version 0.13.10 improves highlight quality and recall through smarter merging and validation.
 
 # Roadmap
 

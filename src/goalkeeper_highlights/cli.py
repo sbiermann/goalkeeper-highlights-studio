@@ -14,6 +14,7 @@ from .benchmark import run_benchmark
 from .config import load_config
 from .pipeline import run
 from .sources import discover_video_files
+from . import __version__
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -22,6 +23,7 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--config", type=Path)
     p.add_argument("--frame-stride", type=int)
     p.add_argument("--decoder", choices=["pyav", "opencv"])
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
 
 def parser() -> argparse.ArgumentParser:

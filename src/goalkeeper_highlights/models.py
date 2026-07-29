@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
 
@@ -72,6 +72,11 @@ class Candidate:
     action_start: float = 0.0
     action_end: float = 0.0
     clip_boundary_reason: str = ""
+    clip_end_reason: str = "timeout"
+    merged_from: list[str] = field(default_factory=list)
+    merged_reason: str = ""
+    merged_duration: float = 0.0
+    interaction_score: float = 0.0
     keeper_x_normalized: float = 0.0
     keeper_y_normalized: float = 0.0
     recovery_candidate: bool = False
