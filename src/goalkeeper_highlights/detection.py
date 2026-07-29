@@ -75,6 +75,92 @@ def detect_controlled_release(candidate: Candidate, items: list[Candidate], clip
                 
     return res
 
+# v0.13.12: Secondary path for recovery candidates with unreliable possession_duration
+def find_recovery_distribution_continuation(candidate: Candidate, items: list[Candidate], clips_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Find a subsequent distribution candidate that belongs to the same goalkeeper phase.
+    
+    This handles cases where possession_duration is too low for detect_controlled_release.
+    """
+    res = {
+        "recovery_distribution_checked": 1.0,
+        "recovery_distribution_detected": 0.0,
+        "recovery_distribution_candidate_found": 0.0,
+        "recovery_distribution_candidate_id": "",
+        "recovery_distribution_candidate_gap": 0.0,
+        "recovery_distribution_candidate_start": 0.0,
+        "recovery_distribution_candidate_end": 0.0,
+        "recovery_distribution_candidate_accepted": 0.0,
+        "recovery_distribution_same_keeper": 0.0,
+        "recovery_distribution_original_action_end": candidate.action_end or candidate.trigger_time,
+        "recovery_distribution_effective_action_end": candidate.action_end or candidate.trigger_time,
+        "recovery_distribution_safety_tail": float(clips_cfg.get("recovery_distribution_safety_tail_seconds", 4.0)),
+        "recovery_distribution_clamped_by_max_duration": 0.0,
+        "recovery_distribution_absorbed_rejected_candidate": 0.0
+    }
+    
+    if not clips_cfg.get("recovery_distribution_continuation_enabled", True):
+        return res
+        
+    # Only recovery candidates or generic activity need this secondary path
+    if not (candidate.recovery_candidate or candidate.category == "recovery_uncovered_activity"):
+        return res
+
+    search_window = float(clips_cfg.get("recovery_distribution_search_seconds", 12.0))
+    max_gap = float(clips_cfg.get("recovery_distribution_max_gap_seconds", 8.0))
+    allow_rejected = bool(clips_cfg.get("recovery_distribution_allow_rejected_candidate", True))
+    
+    # Plausible distribution categories in this project
+    # Based on event_engine.py and common labels
+    distribution_categories = {
+        "distribution", "goalkeeper_distribution", "goalkeeper_clearance", 
+        "punt", "kick", "throw", "roll", "controlled_pass", "pass", "clearance",
+        "controlled_release"
+    }
+
+    anchor = candidate.action_end or candidate.trigger_time
+    best_match = None
+    min_found_gap = float('inf')
+
+    for other in items:
+        if other.candidate_id == candidate.candidate_id:
+            continue
+            
+        other_start = other.action_start or other.trigger_time
+        gap = other_start - anchor
+        
+        # Must be in future, within search window, and not too huge a gap between actual actions
+        if 0 <= gap <= search_window:
+            # Same keeper check
+            if other.keeper_label != candidate.keeper_label:
+                continue
+                
+            # Category check
+            is_dist = other.category in distribution_categories or other.departure_speed >= 0.35
+            
+            if is_dist:
+                # If rejected, only use if explicitly allowed
+                if not other.accepted and not allow_rejected:
+                    continue
+                
+                if gap < min_found_gap:
+                    min_found_gap = gap
+                    best_match = other
+
+    if best_match:
+        res["recovery_distribution_detected"] = 1.0
+        res["recovery_distribution_candidate_found"] = 1.0
+        res["recovery_distribution_candidate_id"] = best_match.candidate_id
+        res["recovery_distribution_candidate_gap"] = min_found_gap
+        res["recovery_distribution_candidate_start"] = best_match.action_start or best_match.trigger_time
+        res["recovery_distribution_candidate_end"] = best_match.action_end or best_match.trigger_time
+        res["recovery_distribution_candidate_accepted"] = 1.0 if best_match.accepted else 0.0
+        res["recovery_distribution_same_keeper"] = 1.0
+        res["recovery_distribution_effective_action_end"] = best_match.action_end or best_match.trigger_time
+        if not best_match.accepted:
+            res["recovery_distribution_absorbed_rejected_candidate"] = 1.0
+            
+    return res
+
 PERSON_CLASS = 0
 SPORTS_BALL_CLASS = 32
 ProgressCallback = Callable[[float, str], None]
@@ -521,7 +607,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
     # Stufe B: Phase Merging
     # We first process the regular chaining, then we check for larger gaps
     # with activity in between.
-    
+        
     def same_keeper_phase(previous: Candidate, current: Candidate) -> bool:
         # Do not glue unrelated restarts together merely because they happen
         # within the generic continuation window. A distribution may continue a
@@ -610,6 +696,42 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         
         candidate.score_breakdown.update(release_res)
 
+        # v0.13.12: Secondary path for recovery-distribution absorption
+        recovery_dist_res = find_recovery_distribution_continuation(candidate, ordered, clips_cfg)
+        if recovery_dist_res["recovery_distribution_detected"] > 0:
+            dist_end = recovery_dist_res["recovery_distribution_effective_action_end"]
+            tail = recovery_dist_res["recovery_distribution_safety_tail"]
+            
+            original_action_end = action_end
+            original_clip_end = candidate.end
+            
+            effective_action_end = max(action_end, dist_end)
+            effective_clip_end = min(duration, effective_action_end + tail)
+            
+            # Respect max duration
+            if effective_clip_end - candidate.start > max_duration:
+                effective_clip_end = candidate.start + max_duration
+                recovery_dist_res["recovery_distribution_clamped_by_max_duration"] = 1.0
+                effective_action_end = min(effective_action_end, effective_clip_end)
+                
+            candidate.action_end = effective_action_end
+            candidate.end = effective_clip_end
+            
+            # If we don't already have a more specific reason like controlled_release, use this one
+            if candidate.clip_end_reason in {"timeout", None}:
+                candidate.clip_end_reason = "recovery_distribution_continuation"
+            
+            action_end = effective_action_end
+            
+            recovery_dist_res.update({
+                "recovery_distribution_original_action_end": original_action_end,
+                "recovery_distribution_effective_action_end": effective_action_end,
+                "recovery_distribution_original_clip_end": original_clip_end,
+                "recovery_distribution_effective_clip_end": effective_clip_end
+            })
+            
+        candidate.score_breakdown.update(recovery_dist_res)
+
         if planned and planned[-1].accepted:
             previous = planned[-1]
             # action_start is for current candidate, previous.action_end is for previous
@@ -635,13 +757,16 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                     # v0.13.11: Use controlled_release if it was already detected for the current candidate
                     if candidate.clip_end_reason == "controlled_release":
                         previous.clip_end_reason = "controlled_release"
+                    elif candidate.clip_end_reason == "recovery_distribution_continuation":
+                        # v0.13.12: Propagate the new continuation reason
+                        previous.clip_end_reason = "recovery_distribution_continuation"
                     elif candidate.category == "distribution" and candidate.departure_speed > 0.35:
                         previous.clip_end_reason = "kick" if candidate.approach_speed < candidate.departure_speed else "throw"
                     elif candidate.category in {"catch_or_control", "cross_claim_or_high_catch"}:
                         previous.clip_end_reason = "timeout"
                     
                     # Extension: Check if we can find a release event within the candidate action
-                    if previous.clip_end_reason in {"timeout", "kick", "throw"} and candidate.departure_speed > 0.25:
+                    if previous.clip_end_reason in {"timeout", "kick", "throw"} and candidate.departure_speed > 0.25 and candidate.clip_end_reason not in {"controlled_release", "recovery_distribution_continuation"}:
                         previous.clip_end_reason = "controlled_release"
                     
                     continue

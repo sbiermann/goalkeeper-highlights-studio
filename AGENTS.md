@@ -116,6 +116,14 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - HTML reports must display interaction scores and merge reasons.
 
 
+## Version 0.13.12
+
+- Robuste Fortsetzungs-Absorption für Recovery-Kandidaten basierend auf nachfolgenden Distribution-Events.
+- Behebt das Problem zu kurzer Clips bei unzuverlässiger `possession_duration` (z.B. Clip 5).
+- Optionale Absorption von `rejected` Distribution-Candidates als Boundary-Evidenz.
+- Zusätzliche Diagnostik für die Recovery-Distribution-Fortsetzung.
+- Alle Invarianten aus v0.13.11 und v0.13.10 bleiben erhalten.
+
 ## Version 0.13.11
 
 - Verbesserte Erkennung kontrollierter Ballfreigaben (Abschläge, Abwürfe, Pässe) nach Ballbesitz.

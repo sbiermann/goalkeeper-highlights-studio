@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: goalkeeper-highlights
-Version: 0.13.11
+Version: 0.13.12
 Summary: Open-source goalkeeper video analysis with YOLO, ByteTrack, Qwen and FFmpeg
 License: Apache-2.0
 Requires-Python: <3.13,>=3.11
@@ -28,7 +28,7 @@ Dynamic: license-file
 
 # Goalkeeper Highlights Studio
 
-**Version 0.13.11**
+**Version 0.13.12**
 
 Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11 (Ultralytics), ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-Vision-Modelle.
 
@@ -142,7 +142,7 @@ Die Ergebnisse werden im Ordner `<video>_goalkeeper_highlights/` gespeichert:
 ## Debug-Paket
 
 Nach jedem erfolgreichen Lauf wird automatisch ein Debug-Paket erstellt:
-`goalkeeper_highlights_debug_v0.13.11.zip`
+`goalkeeper_highlights_debug_v0.13.12.zip`
 
 Dieses Paket enthält **keine Videodateien**, sondern wichtige Diagnosedaten:
 - `candidate_pipeline_trace.json`: Komplette Historie aller Kandidaten.

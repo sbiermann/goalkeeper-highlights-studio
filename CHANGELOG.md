@@ -1,3 +1,11 @@
+## 0.13.12
+- Implementierung der Candidate-basierten Recovery-Distribution-Fortsetzung zur Behebung zu kurzer Clips (z.B. Clip 5).
+- Ermöglicht die Clip-Verlängerung auch bei unzuverlässig erkannter `possession_duration`, sofern ein nachfolgendes Distribution-Event vorliegt.
+- Unterstützung für die Absorption von rejected Distribution-Kandidaten als reine Boundary-Evidenz.
+- Neue Konfigurationsparameter (`recovery_distribution_continuation_enabled`, `recovery_distribution_search_seconds` etc.).
+- Erweiterte Diagnostik im `score_breakdown` für die Recovery-Distribution-Entscheidung.
+- Debug-Paket in `goalkeeper_highlights_debug_v0.13.12.zip` umbenannt.
+
 ## 0.13.11
 - Verbesserte Erkennung kontrollierter Ballfreigaben (Abschlag aus der Hand, Abwurf, Pass) nach Ballbesitz.
 - Clips werden nun bis zum tatsächlichen Release-Zeitpunkt plus Safety-Tail verlängert, um abgeschnittene Highlights zu vermeiden.
