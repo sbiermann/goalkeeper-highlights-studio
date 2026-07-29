@@ -46,5 +46,7 @@ tests/test_v0137.py
 tests/test_v0138.py
 tests/test_v0139.py
 tests/test_v0_13_10.py
+tests/test_v0_13_10_merge.py
+tests/test_v0_13_11_reporting.py
 tests/test_video.py
 tests/test_virtual_timeline.py

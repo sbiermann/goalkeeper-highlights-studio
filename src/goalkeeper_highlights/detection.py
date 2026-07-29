@@ -538,54 +538,98 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
     
     # Final pass: check for very related clips that should be merged despite large gaps (Stufe B)
     # This specifically addresses the 565s -> 592s case if there's evidence they belong together.
-    # For now we implement the logic to check but keep it conservative.
     final_clips: list[Candidate] = []
     phase_gap_limit = max(continuation_gap, float(clips_cfg.get("phase_merge_gap_seconds", 30.0)))
     
+    # v0.13.10 constants
+    duration_tolerance_default = 0.08
+    duration_tolerance = float(clips_cfg.get("phase_merge_duration_tolerance", duration_tolerance_default))
+
     for candidate in planned:
-        if not candidate.accepted:
-            final_clips.append(candidate)
-            continue
+        if candidate.score_breakdown is None:
+            candidate.score_breakdown = {}
             
-        if final_clips and final_clips[-1].accepted:
+        if final_clips:
             previous = final_clips[-1]
+            
+            # Diagnose v0.13.10 phase merge diagnostics (for ALL adjacent pairs)
             gap = candidate.start - previous.end
-            
-            # Diagnose v0.13.10 phase merge
-            candidate.score_breakdown["phase_merge_checked"] = 1.0
-            candidate.score_breakdown["phase_merge_gap"] = gap
-            candidate.score_breakdown["phase_merge_decision"] = 0.0
-            
-            # Phase merge criteria:
-            # 1. Same keeper
-            # 2. Gap within limit
-            # 3. No other conflicting events in between (already filtered here since we only see accepted)
-            # 4. Total duration within limit
+            action_gap = (candidate.action_start or candidate.trigger_time) - (previous.action_end or previous.trigger_time)
             same_keeper = (previous.keeper_label == candidate.keeper_label)
-            within_limit = (gap <= phase_gap_limit)
-            within_duration = (candidate.end - previous.start <= max_duration)
             
-            # In a real run, we would check SQLite for activity in the gap.
-            # Here we use a simplified version: if it's the same keeper and within a reasonable window
-            # and the previous one ended with 'timeout' (suggesting it didn't clearly finish), we consider merging.
-            # v0.13.10: Also ensure we don't merge unrelated restarts (distribution -> clearance)
+            # Restart check
             restart_categories = {"distribution", "keeper_clearance"}
             is_unrelated_restart = (candidate.category in restart_categories and previous.category not in {"catch_or_control", "cross_claim_or_high_catch"})
+            if previous.category in restart_categories and candidate.category in restart_categories:
+                is_unrelated_restart = True
             
-            should_phase_merge = same_keeper and within_limit and within_duration and previous.clip_end_reason == "timeout" and not is_unrelated_restart
+            # Ensure score_breakdown exists
+            if candidate.score_breakdown is None:
+                candidate.score_breakdown = {}
             
-            if should_phase_merge:
-                previous.end = candidate.end
-                previous.action_end = max(previous.action_end, candidate.action_end)
-                previous.contact_frames += candidate.contact_frames
-                previous.ball_confidence = max(previous.ball_confidence, candidate.ball_confidence)
-                previous.description = f"{previous.description}; phase-merged with {candidate.category}".strip("; ")
-                previous.score_breakdown["phase_merge_decision"] = 1.0
-                previous.score_breakdown["phase_merge_reason"] = "same_keeper_related_phase"
-                previous.clip_end_reason = candidate.clip_end_reason
-                continue
+            # Store diagnostics in the candidate's score_breakdown
+            candidate.score_breakdown.update({
+                "phase_merge_checked": 1.0,
+                "phase_merge_gap": gap,
+                "phase_merge_action_gap": action_gap,
+                "phase_merge_same_keeper": 1.0 if same_keeper else 0.0,
+                "phase_merge_restart_detected": 1.0 if is_unrelated_restart else 0.0,
+                "phase_merge_decision": 0.0
+            })
+
+            # Check for regular Phase Merge (both accepted) or Continuation Absorption (right is rejected recovery)
+            is_continuation_candidate = (not candidate.accepted and candidate.recovery_candidate)
+            
+            if previous.accepted and (candidate.accepted or is_continuation_candidate):
+                within_limit = (gap <= phase_gap_limit)
                 
-        final_clips.append(candidate)
+                # Intelligent duration handling
+                raw_combined_duration = candidate.end - previous.start
+                limit_with_tolerance = max_duration * (1.0 + duration_tolerance)
+                
+                if same_keeper and within_limit and not is_unrelated_restart and previous.clip_end_reason == "timeout":
+                    # Can we fit this into a trimmed window?
+                    # We MUST preserve action times:
+                    min_combined_start = min(previous.action_start or previous.trigger_time, candidate.action_start or candidate.trigger_time)
+                    # We subtract the required pre-roll
+                    p_before = max(0.0, float(category_before.get(previous.category, default_before)))
+                    c_after = max(0.0, float(category_after.get(candidate.category, default_after)))
+                    
+                    safe_start = max(0.0, min_combined_start - p_before)
+                    safe_end = min(duration, max(previous.action_end or previous.trigger_time, candidate.action_end or candidate.trigger_time) + c_after)
+                    
+                    trimmed_duration = safe_end - safe_start
+                    
+                    if trimmed_duration <= limit_with_tolerance:
+                        # Success! Merge or Absorb
+                        previous.start = safe_start
+                        previous.end = safe_end
+                        previous.action_end = max(previous.action_end, candidate.action_end)
+                        previous.contact_frames += candidate.contact_frames
+                        previous.ball_confidence = max(previous.ball_confidence, candidate.ball_confidence)
+                        previous.identity_confidence = max(previous.identity_confidence, candidate.identity_confidence)
+                        
+                        if candidate.accepted:
+                            previous.description = f"{previous.description}; phase-merged with {candidate.category}".strip("; ")
+                            previous.score_breakdown["phase_merge_decision"] = 1.0
+                            previous.phase_merge_reason = "same_keeper_related_phase"
+                            previous.merged_from.append(candidate.candidate_id)
+                        else:
+                            previous.description = f"{previous.description}; continuation absorbed from {candidate.category}".strip("; ")
+                            candidate.continuation_absorbed = True
+                            candidate.absorbed_into_candidate_id = previous.candidate_id
+                            candidate.continuation_absorb_reason = "rejected_recovery_continuation_same_keeper"
+                            previous.score_breakdown["phase_merge_decision"] = 1.0
+                            previous.phase_merge_reason = "absorbed_recovery_continuation"
+                            previous.merged_from.append(candidate.candidate_id)
+                        
+                        previous.clip_end_reason = candidate.clip_end_reason
+                        previous.score_breakdown["trimmed_duration"] = trimmed_duration
+                        previous.score_breakdown["original_duration"] = raw_combined_duration
+                        continue
+
+        if candidate.accepted or not candidate.continuation_absorbed:
+            final_clips.append(candidate)
         
     return final_clips
 

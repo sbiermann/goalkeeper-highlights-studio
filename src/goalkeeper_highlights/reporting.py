@@ -32,9 +32,13 @@ def _breakdown(candidate: Candidate) -> str:
         return ""
     rows = []
     for name, value in candidate.score_breakdown.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
         sign = "+" if value >= 0 else "−"
         label = name.replace("_", " ").title()
         rows.append(f"<li><span>{sign} {html.escape(label)}</span><b>{abs(value):.3f}</b></li>")
+    if not rows:
+        return ""
     return "<details><summary>Score-Aufschlüsselung</summary><ul class=breakdown>" + "".join(rows) + "</ul></details>"
 
 

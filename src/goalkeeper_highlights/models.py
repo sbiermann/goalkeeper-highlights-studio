@@ -68,7 +68,7 @@ class Candidate:
     acceptance_threshold: float = 0.0
     possession_bonus: float = 0.0
     cooldown_penalty: float = 0.0
-    score_breakdown: dict[str, Any] = None  # type: ignore[assignment]
+    score_breakdown: dict[str, Any] = field(default_factory=dict)
     action_start: float = 0.0
     action_end: float = 0.0
     clip_boundary_reason: str = ""
@@ -76,6 +76,7 @@ class Candidate:
     merged_from: list[str] = field(default_factory=list)
     merged_reason: str = ""
     merged_duration: float = 0.0
+    phase_merge_reason: str = ""
     interaction_score: float = 0.0
     keeper_x_normalized: float = 0.0
     keeper_y_normalized: float = 0.0
@@ -91,18 +92,13 @@ class Candidate:
     qwen_first_pass_seconds: float = 0.0
     qwen_second_pass_seconds: float = 0.0
     candidate_id: str = ""
-    parent_candidate_ids: list[str] = None  # type: ignore[assignment]
+    parent_candidate_ids: list[str] = field(default_factory=list)
     lifecycle_stage: str = "final"
     lifecycle_reason: str = ""
-    lifecycle_events: list[dict[str, Any]] = None  # type: ignore[assignment]
-
-    def __post_init__(self) -> None:
-        if self.score_breakdown is None:
-            self.score_breakdown = {}
-        if self.parent_candidate_ids is None:
-            self.parent_candidate_ids = []
-        if self.lifecycle_events is None:
-            self.lifecycle_events = []
-
+    lifecycle_events: list[dict[str, Any]] = field(default_factory=list)
+    absorbed_into_candidate_id: str = ""
+    continuation_absorbed: bool = False
+    continuation_absorb_reason: str = ""
+    
     def as_dict(self) -> dict:
         return asdict(self)

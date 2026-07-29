@@ -97,7 +97,7 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
                 candidate.clip_path = str(clip)
                 accepted.append(clip)
                 jobs.append((clip, candidate))
-            elif export_rejected:
+            elif export_rejected and not candidate.continuation_absorbed:
                 clip = rejected_dir / f"{index:03d}_{candidate.trigger_time:09.2f}_{category}_score{candidate.event_score:.3f}.mp4"
                 candidate.clip_path = str(clip)
                 jobs.append((clip, candidate))
