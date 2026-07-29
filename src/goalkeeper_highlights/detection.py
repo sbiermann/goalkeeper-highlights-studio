@@ -504,7 +504,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         if planned and planned[-1].accepted:
             previous = planned[-1]
             gap = action_start - (previous.action_end or previous.trigger_time)
-            if 0.0 <= gap <= continuation_gap and same_keeper_phase(previous, candidate):
+            if 0.0 <= gap <= continuation_gap and previous.keeper_label == candidate.keeper_label and same_keeper_phase(previous, candidate):
                 # Keep one continuous phase when a second keeper event follows,
                 # e.g. distribution -> turnover -> shot -> catch.
                 proposed_end = min(duration, action_end + final_tail)
@@ -544,6 +544,8 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
     # v0.13.10 constants
     duration_tolerance_default = 0.08
     duration_tolerance = float(clips_cfg.get("phase_merge_duration_tolerance", duration_tolerance_default))
+    min_pre_roll = float(clips_cfg.get("phase_merge_min_pre_roll_seconds", 2.0))
+    min_post_roll = float(clips_cfg.get("phase_merge_min_post_roll_seconds", 2.0))
 
     for candidate in planned:
         if candidate.score_breakdown is None:
@@ -590,21 +592,43 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                 if same_keeper and within_limit and not is_unrelated_restart and previous.clip_end_reason == "timeout":
                     # Can we fit this into a trimmed window?
                     # We MUST preserve action times:
-                    min_combined_start = min(previous.action_start or previous.trigger_time, candidate.action_start or candidate.trigger_time)
-                    # We subtract the required pre-roll
-                    p_before = max(0.0, float(category_before.get(previous.category, default_before)))
-                    c_after = max(0.0, float(category_after.get(candidate.category, default_after)))
+                    action_span_start = min(previous.action_start or previous.trigger_time, candidate.action_start or candidate.trigger_time)
+                    action_span_end = max(previous.action_end or previous.trigger_time, candidate.action_end or candidate.trigger_time)
+                    action_duration = action_span_end - action_span_start
                     
-                    safe_start = max(0.0, min_combined_start - p_before)
-                    safe_end = min(duration, max(previous.action_end or previous.trigger_time, candidate.action_end or candidate.trigger_time) + c_after)
+                    # We subtract the desired pre-roll
+                    desired_pre_roll = max(0.0, float(category_before.get(previous.category, default_before)))
+                    desired_post_roll = max(0.0, float(category_after.get(candidate.category, default_after)))
                     
+                    effective_pre_roll = desired_pre_roll
+                    effective_post_roll = desired_post_roll
+                    
+                    limit_with_tolerance = max_duration * (1.0 + duration_tolerance)
+                    
+                    # First try with desired context
+                    if (action_duration + effective_pre_roll + effective_post_roll) > max_duration:
+                        # Too long, reduce pre-roll first
+                        excess = (action_duration + effective_pre_roll + effective_post_roll) - max_duration
+                        reduction = min(excess, effective_pre_roll - min_pre_roll)
+                        if reduction > 0:
+                            effective_pre_roll -= reduction
+                        
+                        # If still too long, reduce post-roll
+                        if (action_duration + effective_pre_roll + effective_post_roll) > max_duration:
+                            excess = (action_duration + effective_pre_roll + effective_post_roll) - max_duration
+                            reduction = min(excess, effective_post_roll - min_post_roll)
+                            if reduction > 0:
+                                effective_post_roll -= reduction
+                    
+                    safe_start = max(0.0, action_span_start - effective_pre_roll)
+                    safe_end = min(duration, action_span_end + effective_post_roll)
                     trimmed_duration = safe_end - safe_start
                     
                     if trimmed_duration <= limit_with_tolerance:
                         # Success! Merge or Absorb
                         previous.start = safe_start
                         previous.end = safe_end
-                        previous.action_end = max(previous.action_end, candidate.action_end)
+                        previous.action_end = action_span_end
                         previous.contact_frames += candidate.contact_frames
                         previous.ball_confidence = max(previous.ball_confidence, candidate.ball_confidence)
                         previous.identity_confidence = max(previous.identity_confidence, candidate.identity_confidence)
@@ -624,8 +648,16 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                             previous.merged_from.append(candidate.candidate_id)
                         
                         previous.clip_end_reason = candidate.clip_end_reason
-                        previous.score_breakdown["trimmed_duration"] = trimmed_duration
-                        previous.score_breakdown["original_duration"] = raw_combined_duration
+                        previous.score_breakdown.update({
+                            "phase_merge_original_pre_roll": desired_pre_roll,
+                            "phase_merge_original_post_roll": desired_post_roll,
+                            "phase_merge_effective_pre_roll": effective_pre_roll,
+                            "phase_merge_effective_post_roll": effective_post_roll,
+                            "phase_merge_action_duration": action_duration,
+                            "phase_merge_original_duration": raw_combined_duration,
+                            "phase_merge_trimmed_duration": trimmed_duration,
+                            "phase_merge_duration_limit": max_duration,
+                        })
                         continue
 
         if candidate.accepted or not candidate.continuation_absorbed:

@@ -185,17 +185,33 @@ def test_trimming_logic():
     c2.approach_speed = 0.6
     
     # limit_with_tolerance = 44.0
-    # trimmed_duration = (135+10) - (100-10) = 55 -> still too long.
-    # In my current implementation, it won't merge if trimmed_duration > limit_with_tolerance.
-    
-    result = extend_and_chain_clip_windows([c1, c2], 1000.0, cfg)
-    assert len(result) == 2 # No merge because 55 > 44.
-    
-    # Now with smaller margins or larger limit
-    cfg["max_dynamic_clip_seconds"] = 50.0 # limit 55.0
+    # Action span 100 to 135 = 35s.
+    # desired_pre = 10, desired_post = 10.
+    # 35 + 10 + 10 = 55s (> 44.0).
+    # Try trimming:
+    # 1. Reduction pre-roll: min(55-40, 10-2) = min(15, 8) = 8.
+    # New pre-roll: 2. New duration: 55 - 8 = 47. Still > 40.
+    # 2. Reduction post-roll: min(47-40, 10-2) = min(7, 8) = 7.
+    # New post-roll: 3. New duration: 47 - 7 = 40.
+    # 40 <= 44.0 -> Merged!
+
     result = extend_and_chain_clip_windows([c1, c2], 1000.0, cfg)
     assert len(result) == 1
-    assert result[0].end - result[0].start == 55.0
+    assert result[0].start == 98.0 # 100 - 2
+    assert result[0].end == 138.0   # 135 + 3
+    assert result[0].end - result[0].start == 40.0
+    
+    # Now with action span already too long
+    c1.action_start = 100.0
+    c1.action_end = 105.0
+    c2.action_start = 145.0
+    c2.action_end = 150.0
+    # Action span: 100 to 150 = 50s. Max: 40s. Tolerance: 4s. Limit: 44.0.
+    # Even with min_pre=2, min_post=2 -> 50 + 2 + 2 = 54s.
+    # 54 > 44.0 -> No merge.
+    
+    result = extend_and_chain_clip_windows([c1, c2], 1000.0, cfg)
+    assert len(result) == 2
 
 def test_diagnostics_produced_for_all():
     # Fall 10: Für das abgelehnte Paar wird auch bei Nicht-Absorption eine negative Phase-Merge-Diagnose erzeugt.

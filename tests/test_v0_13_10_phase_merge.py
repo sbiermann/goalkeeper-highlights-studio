@@ -1,0 +1,205 @@
+import pytest
+from goalkeeper_highlights.models import Candidate
+from goalkeeper_highlights.detection import extend_and_chain_clip_windows
+
+def test_phase_merge_issue_repro():
+    # Clip A
+    # clip window = 218.24–240.60
+    # action window = 228.24–229.60
+    c1 = Candidate(
+        candidate_id="c1",
+        start=218.24, end=240.60,
+        trigger_time=228.24,
+        action_start=228.24, action_end=229.60,
+        accepted=True,
+        category="catch_or_control",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.1, keeper_track_id=1
+    )
+    
+    # Clip B
+    # clip window = 236.72–268.00
+    # action window = 240.72–264.00
+    c2 = Candidate(
+        candidate_id="c2",
+        start=236.72, end=268.00,
+        trigger_time=240.72,
+        action_start=240.72, action_end=264.00,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        recovery_candidate=True,
+        min_normalized_distance=0.1, keeper_track_id=1
+    )
+    
+    # Duration: 500s (enough)
+    duration = 500.0
+    clips_cfg = {
+        "interaction_validation": {"enabled": False},
+        "max_dynamic_clip_seconds": 45.0,
+        "phase_merge_duration_tolerance": 0.08, # 45 * 1.08 = 48.6
+        "phase_merge_gap_seconds": 30.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0, "recovery_uncovered_activity": 4.0},
+        "category_post_roll_seconds": {"catch_or_control": 11.0, "recovery_uncovered_activity": 4.0},
+        "phase_merge_min_pre_roll_seconds": 2.0,
+        "phase_merge_min_post_roll_seconds": 2.0,
+    }
+    
+    # Der aktuelle Stand sollte fehlschlagen (kein Merge, da trimmed_duration > limit_with_tolerance)
+    # Aktueller Algorithmus:
+    # min_combined_start = 228.24
+    # p_before = 10.0
+    # c_after = 4.0
+    # safe_start = 228.24 - 10.0 = 218.24
+    # safe_end = 264.00 + 4.0 = 268.00
+    # trimmed_duration = 268.00 - 218.24 = 49.76
+    # 49.76 > 48.60 -> Merge schlägt fehl im alten Code
+    
+    results = extend_and_chain_clip_windows([c1, c2], duration, clips_cfg)
+    
+    # Wir erwarten jetzt, dass es gemergt wird
+    assert len(results) == 1
+    merged = results[0]
+    assert "c2" in merged.merged_from
+    assert merged.start >= 0
+    assert merged.end <= duration
+    assert merged.end - merged.start <= 48.60
+    # Action window MUST be preserved: 228.24 to 264.00
+    assert merged.start <= 228.24
+    assert merged.end >= 264.00
+    
+    # Diagnostik prüfen
+    sb = merged.score_breakdown
+    assert sb["phase_merge_original_pre_roll"] == 10.0
+    assert sb["phase_merge_effective_pre_roll"] < 10.0
+    assert sb["phase_merge_effective_pre_roll"] >= 2.0
+    assert sb["phase_merge_trimmed_duration"] <= 48.60
+    assert sb["phase_merge_action_duration"] == 264.00 - 228.24
+
+def test_continuation_absorption_trimming():
+    # Testet, ob auch abgelehnte Recovery-Kandidaten (Absorption) vom Trimming profitieren
+    c1 = Candidate(
+        candidate_id="c1", start=100, end=120, trigger_time=110,
+        action_start=110, action_end=115, accepted=True, category="catch",
+        keeper_label="Keeper #1", clip_end_reason="timeout",
+        min_normalized_distance=0.1, keeper_track_id=1
+    )
+    c2 = Candidate(
+        candidate_id="c2", start=140, end=170, trigger_time=150,
+        action_start=150, action_end=165, accepted=False, category="recovery_uncovered_activity",
+        keeper_label="Keeper #1", recovery_candidate=True,
+        min_normalized_distance=0.1, keeper_track_id=1
+    )
+    # Action span: 110 bis 165 = 55s. Max: 45s.
+    # Selbst mit min_pre=2, min_post=2 -> 55 + 2 + 2 = 59s.
+    # 59 > 48.6 -> Sollte NICHT gemergt werden.
+    
+    clips_cfg = {
+        "interaction_validation": {"enabled": False},
+        "max_dynamic_clip_seconds": 45.0,
+        "phase_merge_duration_tolerance": 0.08,
+        "phase_merge_gap_seconds": 30.0,
+        "phase_merge_min_pre_roll_seconds": 2.0,
+        "phase_merge_min_post_roll_seconds": 2.0,
+    }
+    results = extend_and_chain_clip_windows([c1, c2], 500.0, clips_cfg)
+    assert len(results) == 2
+    assert results[1].candidate_id == "c2" # Nicht absorbiert
+    
+def test_different_keepers_no_merge():
+    # Gap zwischen den Clipfenstern vergrößern, um Auto-Chaining zu vermeiden
+    # c1: action 228.24-229.60. before 5s -> start 223.24. after 4s -> end 233.60
+    # c2: action 250.72-264.00. before 5s -> start 245.72. after 4s -> end 268.00
+    # Gap: 245.72 - 233.60 = 12.12s.
+    # Continuation gap is 12s. So they won't chain in pass A.
+    c1 = Candidate(
+        candidate_id="c1",
+        start=218.24, end=240.60,
+        trigger_time=228.24,
+        action_start=228.24, action_end=229.60,
+        accepted=True,
+        category="catch_or_control",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.1, keeper_track_id=1
+    )
+    c2 = Candidate(
+        candidate_id="c2",
+        start=236.72, end=268.00,
+        trigger_time=250.72,
+        action_start=250.72, action_end=264.00,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        keeper_label="Keeper #2",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.1, keeper_track_id=2
+    )
+    results = extend_and_chain_clip_windows([c1, c2], 500.0, {"max_dynamic_clip_seconds": 45.0, "interaction_validation": {"enabled": False}, "continuation_gap_seconds": 12.0})
+    assert len(results) == 2
+
+def test_action_too_long_no_merge():
+    # Action span is 200 to 250 = 50s. Max is 45s.
+    c1 = Candidate(
+        candidate_id="c1",
+        start=190.0, end=210.0,
+        trigger_time=200.0,
+        action_start=200.0, action_end=205.0,
+        accepted=True,
+        category="catch_or_control",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.1, keeper_track_id=1
+    )
+    c2 = Candidate(
+        candidate_id="c2",
+        start=240.0, end=260.0,
+        trigger_time=250.0,
+        action_start=245.0, action_end=250.0,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.1, keeper_track_id=1
+    )
+    # Action span 200.0 - 250.0 = 50.0.
+    # 50.0 > 45.0 * 1.08 = 48.6
+    results = extend_and_chain_clip_windows([c1, c2], 500.0, {"max_dynamic_clip_seconds": 45.0, "phase_merge_duration_tolerance": 0.08, "interaction_validation": {"enabled": False}})
+    assert len(results) == 2
+
+def test_chaining_pass_different_keepers():
+    # Testet, ob der erste Chaining-Pass Kandidaten unterschiedlicher Keeper trennt,
+    # selbst wenn die Lücke klein genug wäre.
+    c1 = Candidate(
+        candidate_id="c1",
+        start=100, end=110, trigger_time=105,
+        action_start=105, action_end=108,
+        accepted=True, category="catch_or_control",
+        keeper_label="Keeper #1",
+        min_normalized_distance=0.1, keeper_track_id=1
+    )
+    c2 = Candidate(
+        candidate_id="c2",
+        start=112, end=120, trigger_time=115,
+        action_start=112, action_end=115,
+        accepted=True, category="distribution",
+        keeper_label="Keeper #2",
+        min_normalized_distance=0.1, keeper_track_id=2
+    )
+    # Action gap: 112 - 108 = 4s.
+    # Continuation gap is 12s (default).
+    
+    duration = 500.0
+    clips_cfg = {
+        "max_dynamic_clip_seconds": 45.0,
+        "continuation_gap_seconds": 12.0,
+        "interaction_validation": {"enabled": False}
+    }
+    
+    results = extend_and_chain_clip_windows([c1, c2], duration, clips_cfg)
+    
+    # Sollten getrennt bleiben wegen unterschiedlicher Keeper
+    assert len(results) == 2
+    assert results[0].keeper_label == "Keeper #1"
+    assert results[1].keeper_label == "Keeper #2"

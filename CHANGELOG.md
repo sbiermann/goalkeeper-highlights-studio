@@ -1,4 +1,8 @@
 ## 0.13.10
+- Improved phase merge logic (v0.13.10): implemented intelligent context trimming (pre-roll/post-roll) to fit combined clips within the duration limit (max 45s + 8% tolerance).
+- Added `phase_merge_min_pre_roll_seconds` and `phase_merge_min_post_roll_seconds` configuration parameters (default 2.0s).
+- Action windows are always preserved during trimming; only context margins are reduced.
+- Extended phase merge diagnostics with numeric values for original/effective rolls, action duration, and trimmed duration.
 - Extended merge logic (v0.13.10): automatic merging of events within 2.5s gap or with ball possession continuity.
 - Dynamic Clip End: clips now extend until a kick or throw is detected after ball control, reducing abrupt ends.
 - Interaction Validator V2: significantly reduced false positives by requiring genuine interaction dynamics (direction change, approach speed, motion) instead of mere proximity.

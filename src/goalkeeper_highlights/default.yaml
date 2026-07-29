@@ -115,6 +115,10 @@ clips:
   merge_gap_seconds: 2.0
   dynamic_end_enabled: true
   continuation_gap_seconds: 12.0
+  phase_merge_gap_seconds: 30.0
+  phase_merge_duration_tolerance: 0.08
+  phase_merge_min_pre_roll_seconds: 2.0
+  phase_merge_min_post_roll_seconds: 2.0
   final_keeper_contact_tail_seconds: 5.0
   minimum_clip_seconds: 6.0
   max_dynamic_clip_seconds: 45.0
