@@ -10,4 +10,5 @@ output/
 .pytest_cache/
 .ruff_cache/
 .run/
-!/.coverage
+.coverage
+debug_data/
