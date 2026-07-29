@@ -58,7 +58,14 @@ def merge_candidates(items: list[Candidate], gap: float, duration: float) -> lis
         # Possession check: if both have possession or the gap is very small
         # In the engine, 'distribution', 'catch_or_control' imply possession.
         possession_categories = {"catch_or_control", "distribution", "cross_claim_or_high_catch"}
-        has_possession_flow = (current.category in possession_categories or candidate.category in possession_categories)
+        
+        # v0.13.10: Refined possession flow logic
+        # A flow exists if there is continuous possession or a direct transition between candidates
+        has_possession_flow = (
+            (current.category in possession_categories and candidate.category in possession_categories) or
+            (current.category == "catch_or_control" and candidate.category == "distribution") or
+            (current.possession_duration > 0.5 and candidate.possession_duration > 0.5 and time_gap < 1.0)
+        )
         
         # v0.13.10: Merge if same keeper, within gap, and possession flow
         # If gap is very small (<0.5s), we merge even without explicit possession flow
@@ -153,11 +160,20 @@ def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]
         and candidate.direction_change < motion_floor
     )
     
-    if not genuine_interaction and not candidate.recovery_candidate:
-        candidate.accepted = False
-        candidate.rejection_reason = "insufficient_interaction_dynamics"
-        candidate.score_breakdown["interaction_validation"] = -1.0
-        return False
+    if not genuine_interaction:
+        if candidate.recovery_candidate:
+            # Stricter validation for recovery candidates: single frame requires high dynamics
+            # If interaction_score is low, reject even if it's a recovery candidate
+            if interaction_score < float(validation.get("minimum_recovery_interaction_score", 0.45)):
+                candidate.accepted = False
+                candidate.rejection_reason = "insufficient_recovery_interaction_score"
+                candidate.score_breakdown["interaction_validation"] = -1.0
+                return False
+        else:
+            candidate.accepted = False
+            candidate.rejection_reason = "insufficient_interaction_dynamics"
+            candidate.score_breakdown["interaction_validation"] = -1.0
+            return False
 
     if not static_contact and not irrelevant_restart and candidate.contact_frames < extreme_frames:
         return True
@@ -443,7 +459,11 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
 
     ordered = sorted(items, key=lambda c: (c.action_start or c.trigger_time, c.trigger_time))
     planned: list[Candidate] = []
-
+    
+    # Stufe B: Phase Merging
+    # We first process the regular chaining, then we check for larger gaps
+    # with activity in between.
+    
     def same_keeper_phase(previous: Candidate, current: Candidate) -> bool:
         # Do not glue unrelated restarts together merely because they happen
         # within the generic continuation window. A distribution may continue a
@@ -504,13 +524,70 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                     elif candidate.category in {"catch_or_control", "cross_claim_or_high_catch"}:
                         previous.clip_end_reason = "timeout"
                     
+                    # Extension: Check if we can find a release event within the candidate action
+                    if candidate.clip_end_reason == "timeout" and candidate.departure_speed > 0.25:
+                        candidate.clip_end_reason = "controlled_release"
+                        previous.clip_end_reason = "controlled_release"
+                    
                     continue
 
         if candidate.end - candidate.start < minimum_duration:
             candidate.end = min(duration, candidate.start + minimum_duration)
         candidate.end = min(candidate.end, candidate.start + max_duration)
         planned.append(candidate)
-    return planned
+    
+    # Final pass: check for very related clips that should be merged despite large gaps (Stufe B)
+    # This specifically addresses the 565s -> 592s case if there's evidence they belong together.
+    # For now we implement the logic to check but keep it conservative.
+    final_clips: list[Candidate] = []
+    phase_gap_limit = max(continuation_gap, float(clips_cfg.get("phase_merge_gap_seconds", 30.0)))
+    
+    for candidate in planned:
+        if not candidate.accepted:
+            final_clips.append(candidate)
+            continue
+            
+        if final_clips and final_clips[-1].accepted:
+            previous = final_clips[-1]
+            gap = candidate.start - previous.end
+            
+            # Diagnose v0.13.10 phase merge
+            candidate.score_breakdown["phase_merge_checked"] = 1.0
+            candidate.score_breakdown["phase_merge_gap"] = gap
+            candidate.score_breakdown["phase_merge_decision"] = 0.0
+            
+            # Phase merge criteria:
+            # 1. Same keeper
+            # 2. Gap within limit
+            # 3. No other conflicting events in between (already filtered here since we only see accepted)
+            # 4. Total duration within limit
+            same_keeper = (previous.keeper_label == candidate.keeper_label)
+            within_limit = (gap <= phase_gap_limit)
+            within_duration = (candidate.end - previous.start <= max_duration)
+            
+            # In a real run, we would check SQLite for activity in the gap.
+            # Here we use a simplified version: if it's the same keeper and within a reasonable window
+            # and the previous one ended with 'timeout' (suggesting it didn't clearly finish), we consider merging.
+            # v0.13.10: Also ensure we don't merge unrelated restarts (distribution -> clearance)
+            restart_categories = {"distribution", "keeper_clearance"}
+            is_unrelated_restart = (candidate.category in restart_categories and previous.category not in {"catch_or_control", "cross_claim_or_high_catch"})
+            
+            should_phase_merge = same_keeper and within_limit and within_duration and previous.clip_end_reason == "timeout" and not is_unrelated_restart
+            
+            if should_phase_merge:
+                previous.end = candidate.end
+                previous.action_end = max(previous.action_end, candidate.action_end)
+                previous.contact_frames += candidate.contact_frames
+                previous.ball_confidence = max(previous.ball_confidence, candidate.ball_confidence)
+                previous.description = f"{previous.description}; phase-merged with {candidate.category}".strip("; ")
+                previous.score_breakdown["phase_merge_decision"] = 1.0
+                previous.score_breakdown["phase_merge_reason"] = "same_keeper_related_phase"
+                previous.clip_end_reason = candidate.clip_end_reason
+                continue
+                
+        final_clips.append(candidate)
+        
+    return final_clips
 
 
 def clamp_clip_windows_to_sources(items: list[Candidate], manifest, clips_cfg: dict[str, Any]) -> list[Candidate]:
