@@ -83,3 +83,14 @@ Validate action-aware clip boundaries on complete matches, especially set pieces
 - Stronger false-positive validation
 - Robust OpenCV packet reading and automatic reopen
 - Refined action-aware clip margins
+
+## 0.13.4 completed
+
+- Correct routing and Qwen-pass accounting
+- Add measured routing and Qwen runtimes
+- Improve per-candidate retry diagnostics
+- Extend tests without changing detection thresholds or clip behavior
+
+
+## Version 0.13.5
+Verified audit/stabilization release with last-source analysis and an explicit feature verification matrix.

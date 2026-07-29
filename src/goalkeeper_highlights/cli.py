@@ -38,6 +38,7 @@ def parser() -> argparse.ArgumentParser:
     analyze.add_argument("--encoder", help="Video encoder: auto, h264_nvenc, libx264, ...")
     analyze.add_argument("--parallel-jobs", type=int, help="Number of parallel FFmpeg clip jobs")
     analyze.add_argument("--verbose", action="store_true", help="Show detailed detector, profiler and FFmpeg output")
+    analyze.add_argument("--only-last-source", action="store_true", help="When VIDEO is a directory, analyze only the naturally sorted final source file")
 
     benchmark = sub.add_parser("benchmark", help="Compare decoders and optionally YOLO throughput")
     _common(benchmark)
@@ -220,7 +221,21 @@ def main() -> int:
         cfg["yolo"]["frame_stride"] = max(1, args.frame_stride)
     if args.decoder:
         cfg.setdefault("decoder", {})["backend"] = args.decoder
-    output = args.output.expanduser().resolve() if args.output else video.with_name(video.stem + "_goalkeeper_highlights")
+    original_video = video
+    if args.command == "analyze" and getattr(args, "only_last_source", False):
+        if not video.is_dir():
+            print("--only-last-source requires a directory source.", file=sys.stderr)
+            return 2
+        ordered_sources = discover_video_files(video)
+        video = ordered_sources[-1]
+        print(f"Nur letzte Quelldatei: {video.name}")
+
+    if args.output:
+        output = args.output.expanduser().resolve()
+    elif getattr(args, "only_last_source", False):
+        output = original_video.with_name(original_video.stem + "_last_source_goalkeeper_highlights")
+    else:
+        output = video.with_name(video.stem + "_goalkeeper_highlights")
     try:
         if args.command == "benchmark":
             report = run_benchmark(video, output, cfg, max(1.0, args.seconds), args.yolo)

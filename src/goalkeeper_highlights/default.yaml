@@ -133,6 +133,20 @@ qwen:
   minimum_quality_score: 0.48
   keep_all_candidates: false
   use_4bit: true
+  routing:
+    enabled: true
+    high_threshold: 0.85
+    low_threshold: 0.15
+    retry_enabled: true
+    retry_min_confidence: 0.40
+    retry_max_confidence: 0.70
+    retry_frames: 12
+    retry_context_before: 2.0
+    retry_context_after: 2.0
+    recovery_force_medium: true
+    recovery_retry_min_confidence: 0.30
+    short_action_motion_threshold: 0.30
+    debug_decisions: false
 
 runtime:
   verbose_console: false

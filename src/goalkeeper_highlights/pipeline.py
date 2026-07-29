@@ -68,7 +68,12 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
 
         if progress_callback:
             progress_callback(0.96, "Klassifiziere Kandidaten")
-        classify(analysis_video, candidates, config)
+        
+        classification_started = time.perf_counter()
+        classification_stats = classify(analysis_video, candidates, config)
+        timings["classification_seconds"] = time.perf_counter() - classification_started
+        timings.update(classification_stats)
+        
         clips_cfg = config["clips"]
         clamp_clip_windows_to_sources(candidates, source_manifest, clips_cfg)
         store.replace_candidates(candidates)
@@ -126,6 +131,26 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
         timings["concat_seconds"] = time.perf_counter() - concat_started
         timings["accepted"] = len(accepted)
         timings["rejected"] = len(candidates) - len(accepted)
+        
+        # Routing stats
+        timings["routing_high"] = sum(1 for c in candidates if c.routing_category == "HIGH")
+        timings["routing_medium"] = sum(1 for c in candidates if c.routing_category == "MEDIUM")
+        timings["routing_low"] = sum(1 for c in candidates if c.routing_category == "LOW")
+        timings["directly_accepted"] = sum(1 for c in candidates if c.routing_category == "HIGH" and c.accepted)
+        timings["early_rejected"] = sum(1 for c in candidates if c.routing_category == "LOW" and not c.accepted)
+        timings["qwen_first_pass"] = sum(1 for c in candidates if c.qwen_first_pass_called)
+        timings["qwen_second_pass"] = sum(1 for c in candidates if c.qwen_second_pass_called)
+        timings["qwen_saved"] = sum(1 for c in candidates if c.qwen_second_pass_rescued)
+        timings["recovery_candidates"] = sum(1 for c in candidates if c.recovery_candidate)
+        
+        # Calculate saved calls
+        total_candidates = len(candidates)
+        if total_candidates > 0:
+            saved_calls = timings["routing_high"] + timings["routing_low"]
+            timings["qwen_calls_saved"] = saved_calls
+        else:
+            timings["qwen_calls_saved"] = 0
+
         timings["total_seconds"] = time.perf_counter() - total_started
 
         keeper_detection = store.get_state("keeper_detection", {})

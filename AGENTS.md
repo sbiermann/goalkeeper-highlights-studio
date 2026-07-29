@@ -79,3 +79,11 @@ Clip windows must be based on `Candidate.action_start` and `Candidate.action_end
 ## Recovery-pass invariant (0.13.1)
 
 Missed-action recovery must operate on generic geometry over the complete virtual timeline. Never add recording-specific filenames or timestamps. Existing candidate windows are a negative mask to avoid duplicate highlights. Decoder recovery must remain transparent in normal mode and observable through summary statistics.
+
+## Version 0.13.4
+
+Maintenance release for corrected routing statistics, explicit Qwen pass accounting, retry diagnostics, and extended routing tests. Detection, clip planning, recovery logic, and routing thresholds remain unchanged from 0.13.3.
+
+
+## Version 0.13.5
+Verified audit/stabilization release with last-source analysis and an explicit feature verification matrix.

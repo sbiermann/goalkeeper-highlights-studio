@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: goalkeeper-highlights
-Version: 0.13.2
+Version: 0.13.5
 Summary: Open-source goalkeeper video analysis with YOLO, ByteTrack, Qwen and FFmpeg
 License: Apache-2.0
 Requires-Python: <3.13,>=3.11
@@ -28,11 +28,30 @@ Dynamic: license-file
 
 # Goalkeeper Highlights Studio
 
-**Version 0.13.2** 0.11
+**Version 0.13.5**
 
 Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11, ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-VL.
 
-## Neu in 0.11
+## Neu in 0.13.5
+
+- **Korrekte Routing-Statistiken**: Qwen-Aufrufe werden nur gezählt, wenn das Modell tatsächlich ausgeführt wurde.
+- **Getrennte Zähler**: Direkte HIGH-Annahmen, frühe LOW-Ablehnungen, erster Qwen-Durchlauf, zweiter Qwen-Durchlauf und durch den zweiten Durchlauf gerettete Highlights werden separat ausgewiesen.
+- **Gemessene Laufzeiten**: Heuristisches Scoring sowie erster und zweiter Qwen-Durchlauf erhalten eigene Laufzeitwerte.
+- **Bessere Diagnose**: Kandidaten speichern, welche Qwen-Durchläufe ausgeführt wurden, ob der zweite Durchlauf ein Highlight gerettet hat und wie lange die Klassifizierung dauerte.
+- **Robuster Retry-Mechanismus**: Unsichere, nicht parsebare, kurze oder aus der Recovery stammende Kandidaten werden kontrolliert behandelt, ohne Endlosschleife.
+- **Mehr Tests**: Erweiterte Testabdeckung für Routing, Retry-Entscheidungen und Performance-Zähler.
+
+Diese Version wurde als Audit- und Stabilisierungsrelease gegen die Anforderungen aus 0.13.0 bis 0.13.3 geprüft. Zusätzlich ist die gezielte Analyse nur der letzten natürlich sortierten Quelldatei verfügbar.
+
+## Neu in 0.13.3
+
+- **Heuristisches Routing**: Intelligente Vorfilterung von Kandidaten in die Kategorien HIGH, MEDIUM und LOW.
+- **Geschwindigkeitsoptimierung**: HIGH-Kandidaten werden direkt akzeptiert und LOW-Kandidaten früh verworfen, wodurch teure Qwen-Aufrufe eingespart werden.
+- **Zweiter Qwen-Durchlauf**: Bei unsicheren Ergebnissen (MEDIUM oder unklare Konfidenz) erfolgt automatisch ein zweiter Durchlauf mit erweitertem zeitlichem Kontext (+2s vor/nach) und mehr Frames zur präziseren Analyse.
+- **Detaillierte Statistiken**: Erweiterter Performance-Report mit routingbezogenen Kennzahlen (HIGH/MEDIUM/LOW, eingesparte Aufrufe, gerettete Highlights).
+- **Flexible Konfiguration**: Alle Schwellenwerte für das Routing und den Retry-Mechanismus sind in der `default.yaml` anpassbar.
+
+## Neu in 0.12
 
 - komplette Spiele können aus einem Verzeichnis mit mehreren aufeinanderfolgenden Videodateien analysiert werden
 - natürliche Dateisortierung, z. B. `MVI_0540.MP4`, `MVI_0541.MP4`, `MVI_0542.MP4`
@@ -78,7 +97,7 @@ python -c "import importlib.metadata; print(importlib.metadata.version('goalkeep
 Erwartete Ausgabe:
 
 ```text
-0.13.1
+0.13.5
 ```
 
 ## Empfohlener Analyselauf
@@ -131,6 +150,22 @@ Spiel_2026-07-27_goalkeeper_highlights/
 ```
 
 Zusätzlich wird `source_manifest.json` erzeugt. Es enthält die Reihenfolge, Einzeldauer und globale Startzeit jeder Quelldatei.
+
+
+### Nur die letzte Quelldatei analysieren
+
+Für eine gezielte Nachanalyse des letzten Kamerasegments:
+
+```powershell
+goalkeeper-highlights analyze `
+  "C:\videorohdaten\158_0726" `
+  --only-last-source `
+  --decoder opencv `
+  --frame-stride 2 `
+  --overwrite
+```
+
+Die Auswahl erfolgt nach derselben natürlichen Sortierung wie bei der vollständigen Verzeichnisanalyse. Standardmäßig wird in `<Verzeichnis>_last_source_goalkeeper_highlights` geschrieben.
 
 ## FFmpeg-Modi
 

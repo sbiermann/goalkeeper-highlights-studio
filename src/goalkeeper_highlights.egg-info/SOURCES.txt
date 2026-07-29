@@ -33,8 +33,11 @@ tests/test_cli_progress.py
 tests/test_detection.py
 tests/test_event_engine.py
 tests/test_keeper_bootstrap.py
+tests/test_last_source_cli.py
 tests/test_quality.py
 tests/test_recovery_pass.py
+tests/test_routing.py
+tests/test_source_selection.py
 tests/test_sources.py
 tests/test_store.py
 tests/test_video.py

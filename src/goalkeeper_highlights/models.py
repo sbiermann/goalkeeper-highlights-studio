@@ -75,6 +75,16 @@ class Candidate:
     keeper_x_normalized: float = 0.0
     keeper_y_normalized: float = 0.0
     recovery_candidate: bool = False
+    routing_score: float = 0.0
+    routing_category: str = "MEDIUM"
+    routing_reason: str = ""
+    qwen_retry_count: int = 0
+    qwen_retry_confidence: float = 0.0
+    qwen_first_pass_called: bool = False
+    qwen_second_pass_called: bool = False
+    qwen_second_pass_rescued: bool = False
+    qwen_first_pass_seconds: float = 0.0
+    qwen_second_pass_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         if self.score_breakdown is None:

@@ -1,3 +1,44 @@
+# 0.13.5
+
+Verified audit and stabilization release.
+
+- Audited the implemented 0.13.0-0.13.3 feature set against code and regression tests.
+- Confirmed action-aware boundaries, source clamping, interaction validation, generic recovery, OpenCV decoder recovery, HIGH/MEDIUM/LOW routing, and the controlled second Qwen pass.
+- Added `--only-last-source` for targeted analysis of the naturally sorted final file in a directory.
+- Added a separate default output directory for last-source analyses to protect full-match results.
+- Added CLI and source-selection regression tests.
+- Added `FEATURE_AUDIT_0.13.5.md` with the verification matrix and remaining runtime-validation risks.
+
+# 0.13.4
+
+Maintenance and quality release based on the reviewed 0.13.3 routing implementation.
+
+- Corrected routing statistics so first-pass Qwen calls count only actual model invocations.
+- Added separate counters for directly accepted HIGH candidates and early-rejected LOW candidates.
+- Added measured runtimes for heuristic scoring, first-pass Qwen, and second-pass Qwen processing.
+- Added explicit counters for second-pass calls and highlights rescued by the second pass.
+- Added per-candidate diagnostics for first-pass calls, second-pass calls, rescue status, confidence, and runtime.
+- Refactored the retry decision into a separate, testable path with loop prevention.
+- Extended automated test coverage for routing, uncertain responses, malformed Qwen output, recovery candidates, and performance counters.
+- Updated version metadata and documentation to distinguish this maintenance release from the original 0.13.3 implementation.
+- Kept the detection pipeline, clip-boundary logic, recovery algorithms, and HIGH/MEDIUM/LOW score thresholds unchanged.
+- Kept directory analysis unchanged; selecting only the final source file is not part of this release.
+
+# 0.13.3
+
+- Corrected routing statistics so first-pass calls count only actual Qwen invocations.
+- Added separate counters for direct HIGH acceptance, early LOW rejection, second-pass calls, and second-pass rescues.
+- Added measured heuristic, first-pass Qwen, and second-pass Qwen runtimes.
+- Added explicit retry decision handling for uncertain, recovery, short-action, and malformed-response cases with loop prevention.
+- Kept directory analysis unchanged; source-file selection is not part of the 0.13.3 routing release.
+- Added heuristic candidate pre-filtering with HIGH, MEDIUM, and LOW routing categories to optimize analysis speed.
+- HIGH-scoring candidates with strong dynamic features are directly accepted without Qwen analysis.
+- LOW-scoring candidates with weak or static features are early-rejected, saving Qwen processing time.
+- Implemented a second Qwen pass for MEDIUM or uncertain candidates, using expanded temporal context and more representative frames.
+- Added detailed performance statistics for routing decisions, saved Qwen calls, and retry effectiveness.
+- All routing thresholds and retry parameters are fully configurable in `default.yaml`.
+- Preserved all existing clip boundary and event engine logic from 0.13.2.
+
 # 0.13.2
 
 - Added a constrained rescue rule for classic goalkeeper actions that narrowly miss the category threshold despite reliable dynamic keeper/ball contact.
