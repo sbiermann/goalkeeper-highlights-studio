@@ -1,3 +1,11 @@
+## 0.13.11
+- Verbesserte Erkennung kontrollierter Ballfreigaben (Abschlag aus der Hand, Abwurf, Pass) nach Ballbesitz.
+- Clips werden nun bis zum tatsächlichen Release-Zeitpunkt plus Safety-Tail verlängert, um abgeschnittene Highlights zu vermeiden.
+- Neue Konfigurationsparameter für die Release-Erkennung (`controlled_release_enabled`, `controlled_release_safety_tail_seconds` etc.).
+- Erweiterte Diagnostik im `score_breakdown` für die Release-Entscheidung.
+- Sicherstellung der Phase-Merge-Logik und Context-Trimming aus v0.13.10.
+- Debug-Paket in `goalkeeper_highlights_debug_v0.13.11.zip` umbenannt.
+
 ## 0.13.10
 - Improved phase merge logic (v0.13.10): implemented intelligent context trimming (pre-roll/post-roll) to fit combined clips within the duration limit (max 45s + 8% tolerance).
 - Added `phase_merge_min_pre_roll_seconds` and `phase_merge_min_post_roll_seconds` configuration parameters (default 2.0s).

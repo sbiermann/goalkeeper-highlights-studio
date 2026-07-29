@@ -116,6 +116,13 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - HTML reports must display interaction scores and merge reasons.
 
 
+## Version 0.13.11
+
+- Verbesserte Erkennung kontrollierter Ballfreigaben (Abschläge, Abwürfe, Pässe) nach Ballbesitz.
+- Verlängerung der Clip-Fenster für kontrollierte Freigaben mit konfigurierbarem Safety-Tail.
+- Zusätzliche Diagnostik für die Freigabe-Erkennung im `score_breakdown`.
+- Alle Invarianten aus v0.13.10 (Phase-Merge, Interaction Validation) bleiben erhalten.
+
 ## v0.13.9 invariants
 
 - Never hardcode match timestamps, filenames, track IDs or clip numbers.

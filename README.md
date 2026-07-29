@@ -1,6 +1,6 @@
 # Goalkeeper Highlights Studio
 
-**Version 0.13.10**
+**Version 0.13.11**
 
 Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11 (Ultralytics), ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-Vision-Modelle.
 
@@ -114,7 +114,7 @@ Die Ergebnisse werden im Ordner `<video>_goalkeeper_highlights/` gespeichert:
 ## Debug-Paket
 
 Nach jedem erfolgreichen Lauf wird automatisch ein Debug-Paket erstellt:
-`goalkeeper_highlights_debug_v0.13.10.zip`
+`goalkeeper_highlights_debug_v0.13.11.zip`
 
 Dieses Paket enthält **keine Videodateien**, sondern wichtige Diagnosedaten:
 - `candidate_pipeline_trace.json`: Komplette Historie aller Kandidaten.

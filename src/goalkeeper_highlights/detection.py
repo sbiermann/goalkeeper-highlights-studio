@@ -17,6 +17,64 @@ from .event_engine import GoalkeeperEventEngine
 from .profiling import PerformanceProfiler
 from .keeper_bootstrap import AutomaticGoalkeeperDetector
 
+# v0.13.11: Helper to detect controlled goalkeeper releases (punts, throws, rolls, passes)
+def detect_controlled_release(candidate: Candidate, items: list[Candidate], clips_cfg: dict[str, Any]) -> dict[str, Any]:
+    """Search for evidence of a controlled release after ball possession.
+    
+    Returns a dict with detection results for score_breakdown and timing.
+    """
+    res = {
+        "controlled_release_checked": 1.0,
+        "controlled_release_detected": 0.0,
+        "controlled_release_time": 0.0,
+        "controlled_release_possession_duration": candidate.possession_duration,
+        "controlled_release_departure_speed": candidate.departure_speed,
+        "controlled_release_clamped_by_max_duration": 0.0
+    }
+    
+    if not clips_cfg.get("controlled_release_enabled", True):
+        return res
+        
+    min_possession = float(clips_cfg.get("controlled_release_minimum_possession_seconds", 0.5))
+    search_window = float(clips_cfg.get("controlled_release_search_seconds", 12.0))
+    min_departure = float(clips_cfg.get("controlled_release_minimum_departure_speed", 0.35))
+    
+    # We need some initial possession evidence
+    if candidate.possession_duration < min_possession:
+        return res
+
+    # 1. Check if the candidate itself already has a strong departure signal
+    # If category is distribution, we already have some evidence.
+    if candidate.departure_speed >= min_departure:
+        res["controlled_release_detected"] = 1.0
+        res["controlled_release_time"] = candidate.action_end or candidate.trigger_time
+        return res
+
+    # 2. Look for subsequent candidates of the same keeper within the search window
+    # that might represent the release (e.g. a recovery candidate or a distribution)
+    anchor = candidate.action_end or candidate.trigger_time
+    for other in items:
+        if other.candidate_id == candidate.candidate_id:
+            continue
+        
+        other_start = other.action_start or other.trigger_time
+        gap = other_start - anchor
+        
+        if 0 <= gap <= search_window and other.keeper_label == candidate.keeper_label:
+            # If the next event is a distribution or has strong departure, it's our release
+            if other.category == "distribution" or other.departure_speed >= min_departure:
+                res["controlled_release_detected"] = 1.0
+                res["controlled_release_time"] = other.action_end or other.trigger_time
+                return res
+            
+            # If it's a generic recovery with some motion, it could be the release
+            if other.recovery_candidate and (other.departure_speed >= 0.25 or other.keeper_motion >= 0.2):
+                res["controlled_release_detected"] = 1.0
+                res["controlled_release_time"] = other.action_end or other.trigger_time
+                return res
+                
+    return res
+
 PERSON_CLASS = 0
 SPORTS_BALL_CLASS = 32
 ProgressCallback = Callable[[float, str], None]
@@ -469,17 +527,32 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         # within the generic continuation window. A distribution may continue a
         # catch/control, but an isolated goal kick starts its own clip.
         restart_categories = {"distribution", "keeper_clearance"}
-        if current.category in restart_categories and previous.category not in {"catch_or_control", "cross_claim_or_high_catch"}:
+        
+        # v0.13.11: Support recovery categories in chaining logic
+        previous_cat = previous.category
+        current_cat = current.category
+        
+        if current_cat in restart_categories and previous_cat not in {"catch_or_control", "cross_claim_or_high_catch", "recovery_uncovered_activity"}:
             return False
-        if previous.category in restart_categories and current.category in restart_categories:
+        if previous_cat in restart_categories and current_cat in restart_categories:
             return False
         return True
     for candidate in ordered:
+        # v0.13.11: Ensure score_breakdown is initialized before use
+        if candidate.score_breakdown is None:
+            candidate.score_breakdown = {}
+        
+        # print(f"[DEBUG_LOG] Processing candidate {candidate.candidate_id}, accepted={candidate.accepted}, category={candidate.category}")
+            
         _has_real_keeper_interaction(candidate, clips_cfg)
+        # print(f"[DEBUG_LOG] After interaction check: {candidate.candidate_id}, accepted={candidate.accepted}")
         if not candidate.accepted:
+            # v0.13.11: Diagnostics for rejected candidates too
+            release_res = detect_controlled_release(candidate, ordered, clips_cfg)
+            candidate.score_breakdown.update(release_res)
             planned.append(candidate)
             continue
-
+            
         action_start = candidate.action_start or candidate.trigger_time
         action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
         before = max(0.0, float(category_before.get(candidate.category, default_before)))
@@ -492,19 +565,59 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         if candidate.category == "distribution" and candidate.departure_speed > 0.35:
             candidate.clip_end_reason = "kick" if candidate.approach_speed < candidate.departure_speed else "throw"
             # Keep the existing 'after' context from the departure point
-        elif candidate.category in {"catch_or_control", "cross_claim_or_high_catch"}:
-            # These usually end with the keeper holding the ball. 
-            # If they are NOT chained to a distribution, they might end abruptly.
-            candidate.clip_end_reason = "timeout"
         
         candidate.start = max(0.0, action_start - before)
         candidate.end = min(duration, action_end + after)
         candidate.clip_boundary_reason = "observed_action_window"
+        
+        # Default end reason
+        if not candidate.clip_end_reason:
+            candidate.clip_end_reason = "timeout"
+
+        # v0.13.11: Enhance clip end for controlled releases
+        release_res = detect_controlled_release(candidate, ordered, clips_cfg)
+        if release_res["controlled_release_detected"] > 0:
+            release_time = release_res["controlled_release_time"]
+            tail = float(clips_cfg.get("controlled_release_safety_tail_seconds", 4.0))
+            
+            original_action_end = action_end
+            original_clip_end = candidate.end
+            
+            # Extension: action_end should at least cover the release
+            effective_action_end = max(action_end, release_time)
+            effective_clip_end = min(duration, effective_action_end + tail)
+            
+            # Respect max duration
+            if effective_clip_end - candidate.start > max_duration:
+                effective_clip_end = candidate.start + max_duration
+                release_res["controlled_release_clamped_by_max_duration"] = 1.0
+                # If even the new action_end is beyond max_duration, clamp it too for consistency
+                effective_action_end = min(effective_action_end, effective_clip_end)
+            
+            candidate.action_end = effective_action_end
+            candidate.end = effective_clip_end
+            candidate.clip_end_reason = "controlled_release"
+            
+            # Also update the locally scoped action_end for pass A chaining
+            action_end = effective_action_end
+            
+            release_res.update({
+                "controlled_release_original_action_end": original_action_end,
+                "controlled_release_effective_action_end": effective_action_end,
+                "controlled_release_original_clip_end": original_clip_end,
+                "controlled_release_effective_clip_end": effective_clip_end
+            })
+        
+        candidate.score_breakdown.update(release_res)
 
         if planned and planned[-1].accepted:
             previous = planned[-1]
+            # action_start is for current candidate, previous.action_end is for previous
             gap = action_start - (previous.action_end or previous.trigger_time)
-            if 0.0 <= gap <= continuation_gap and previous.keeper_label == candidate.keeper_label and same_keeper_phase(previous, candidate):
+            # print(f"[DEBUG_LOG] Chaining check: {previous.candidate_id} -> {candidate.candidate_id}, gap={gap}, same_keeper={previous.keeper_label == candidate.keeper_label}")
+            
+            # v0.13.11: More flexible chaining: also allow when the clips overlap (negative gap)
+            if gap <= continuation_gap and previous.keeper_label == candidate.keeper_label and same_keeper_phase(previous, candidate):
                 # Keep one continuous phase when a second keeper event follows,
                 # e.g. distribution -> turnover -> shot -> catch.
                 proposed_end = min(duration, action_end + final_tail)
@@ -519,14 +632,16 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                     previous.clip_boundary_reason = "chained_keeper_phase"
                     
                     # Update clip end reason for the chained sequence
-                    if candidate.category == "distribution" and candidate.departure_speed > 0.35:
+                    # v0.13.11: Use controlled_release if it was already detected for the current candidate
+                    if candidate.clip_end_reason == "controlled_release":
+                        previous.clip_end_reason = "controlled_release"
+                    elif candidate.category == "distribution" and candidate.departure_speed > 0.35:
                         previous.clip_end_reason = "kick" if candidate.approach_speed < candidate.departure_speed else "throw"
                     elif candidate.category in {"catch_or_control", "cross_claim_or_high_catch"}:
                         previous.clip_end_reason = "timeout"
                     
                     # Extension: Check if we can find a release event within the candidate action
-                    if candidate.clip_end_reason == "timeout" and candidate.departure_speed > 0.25:
-                        candidate.clip_end_reason = "controlled_release"
+                    if previous.clip_end_reason in {"timeout", "kick", "throw"} and candidate.departure_speed > 0.25:
                         previous.clip_end_reason = "controlled_release"
                     
                     continue
@@ -548,6 +663,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
     min_post_roll = float(clips_cfg.get("phase_merge_min_post_roll_seconds", 2.0))
 
     for candidate in planned:
+        # v0.13.11: Ensure score_breakdown exists
         if candidate.score_breakdown is None:
             candidate.score_breakdown = {}
             
@@ -565,7 +681,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             if previous.category in restart_categories and candidate.category in restart_categories:
                 is_unrelated_restart = True
             
-            # Ensure score_breakdown exists
+            # Ensure score_breakdown exists (already done above, but for clarity in merge logic)
             if candidate.score_breakdown is None:
                 candidate.score_breakdown = {}
             
