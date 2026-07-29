@@ -1,3 +1,13 @@
+## 0.13.9
+
+- Reworked goalkeeper bootstrap into deferred, whole-observation evidence collection.
+- Recordings that start after a break with an advanced goalkeeper no longer receive the full field-excursion penalty.
+- Added restart-context detection, return-to-goal evidence and longer logical-identity gaps.
+- Automatic selection can remain pending for up to 240 seconds before interactive fallback.
+- Keeper diagnostics now report `start_context`, `initial_keeper_position`, `automatic_selection_deferred` and `selection_confirmed_at`.
+- Debug archive/version metadata updated to 0.13.9.
+- Restored the `source_selection` API used by `--only-last-source`.
+
 ## 0.13.8
 
 - Reworked automatic goalkeeper selection around multi-stage behavioural evidence instead of a single-track startup score.

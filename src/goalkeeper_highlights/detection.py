@@ -783,13 +783,14 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                             print(f"Keeper tracking stable: Keeper #1, confidence {bootstrap_result['confidence']:.2f}")
                         tracking_stable_reported = True
 
-            # Version 0.10: gather multi-frame evidence before choosing a keeper.
-            # This replaces the fragile single-frame heuristic while retaining an
-            # interactive fallback for unusual camera positions or low confidence.
+            # Version 0.13.9: keep gathering logical-person evidence beyond the initial
+            # window. This handles recordings that start after a break while the
+            # goalkeeper is advanced near midfield. Manual selection is only used
+            # after the configured deferred evidence horizon.
             if identity is None and bootstrap is not None and not bootstrap_complete:
                 bootstrap.observe(decoded.image, persons, balls, decoded.timestamp)
                 if progress_callback:
-                    progress_callback(min(0.03, decoded.timestamp / max(duration, 1)), f"Automatische Torwarterkennung: {decoded.timestamp:.1f}/{bootstrap_max_seconds:.1f}s")
+                    progress_callback(min(0.03, decoded.timestamp / max(duration, 1)), f"Torwart-Evidenz wird gesammelt: {decoded.timestamp:.1f}/{bootstrap_max_seconds:.1f}s")
                 if decoded.timestamp >= next_bootstrap_check:
                     selected_box, selected_frame, bootstrap_result = bootstrap.select()
                     next_bootstrap_check += bootstrap_recheck_seconds

@@ -106,3 +106,10 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Every candidate must keep a stable id and merge ancestry.
 - Debug archives must never contain video files.
 - OpenCV read-attempt configuration must be applied before importing cv2.
+
+## v0.13.9 invariants
+
+- Never hardcode match timestamps, filenames, track IDs or clip numbers.
+- A source may begin after a break with the goalkeeper near midfield. Do not require goal proximity during the initial frames.
+- Keep automatic selection pending while evidence is ambiguous; only use the interactive fallback after the configured deferred horizon.
+- Preserve restart-context and return-to-goal evidence in the debug package.

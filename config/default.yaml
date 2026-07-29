@@ -15,11 +15,11 @@ yolo:
   device: auto
 
 keeper:
-  # Version 0.10 analyzes the first seconds automatically. The click dialog is
-  # only used as a fallback when the automatic result is not confident enough.
+  # Version 0.13.9 keeps collecting evidence when a recording starts after a
+  # break and the goalkeeper is temporarily far away from the goal.
   automatic_initial_detection: true
   bootstrap_seconds: 15.0
-  bootstrap_max_seconds: 60.0
+  bootstrap_max_seconds: 240.0
   bootstrap_recheck_seconds: 5.0
   bootstrap_min_observations: 4
   bootstrap_observation_target: 40
@@ -32,8 +32,14 @@ keeper:
   bootstrap_min_margin: 0.035
   bootstrap_top_candidates: 5
   bootstrap_identity_hist_distance: 0.30
-  bootstrap_identity_max_gap_seconds: 18.0
+  bootstrap_identity_max_gap_seconds: 90.0
   bootstrap_identity_overlap_tolerance_seconds: 0.5
+  bootstrap_restart_context_seconds: 45.0
+  bootstrap_restart_context_ratio: 0.25
+  bootstrap_restart_field_penalty_factor: 0.15
+  bootstrap_restart_min_confidence: 0.58
+  bootstrap_restart_min_margin: 0.035
+  bootstrap_return_to_goal_target: 2
   bootstrap_weights:
     shirt_uniqueness: 0.24
     camera_proximity: 0.08
@@ -45,6 +51,7 @@ keeper:
     low_movement: 0.05
     ball_contact: 0.08
     persistence: 0.10
+    return_to_goal: 0.16
     field_excursion_penalty: 0.08
   interactive_selection: true
   goal_roi: [0.15, 0.05, 0.85, 0.95]

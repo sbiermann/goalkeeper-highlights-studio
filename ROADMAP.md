@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.8, focused on keeper identity and missed-save recovery.
+Current stabilization release: 0.13.9, focused on keeper identity and missed-save recovery.
 
 # Roadmap
 

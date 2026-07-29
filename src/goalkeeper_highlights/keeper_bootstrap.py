@@ -65,6 +65,9 @@ class TrackEvidence:
     depth_sum: float = 0.0
     depth_sq_sum: float = 0.0
     field_excursion_frames: int = 0
+    advanced_start_frames: int = 0
+    return_to_goal_frames: int = 0
+    last_goal_area_score: float = 0.0
     ball_contact_frames: int = 0
     confidence_sum: float = 0.0
     histograms: list[np.ndarray] = field(default_factory=list)
@@ -98,7 +101,8 @@ class AutomaticGoalkeeperDetector:
             e.observations += 1
             e.last_timestamp = timestamp
             e.area_sum += box.area / max(1.0, self.width * self.height)
-            e.goal_area_sum += _rect_score(box, self.width, self.height, regions, falloff)
+            goal_score = _rect_score(box, self.width, self.height, regions, falloff)
+            e.goal_area_sum += goal_score
             nx, ny = box.center[0] / self.width, box.center[1] / self.height
             normalized_area = min(1.0, box.area / max(1.0, self.width * self.height * .06))
             e.camera_proximity_sum += .55 * ny + .45 * normalized_area
@@ -109,6 +113,11 @@ class AutomaticGoalkeeperDetector:
             e.depth_sq_sum += ny * ny
             if .25 <= nx <= .75 and .30 <= ny <= .78:
                 e.field_excursion_frames += 1
+                if timestamp <= float(self.cfg.get("bootstrap_restart_context_seconds", 45.0)):
+                    e.advanced_start_frames += 1
+            if e.last_goal_area_score < .35 and goal_score >= .75 and timestamp >= float(self.cfg.get("bootstrap_restart_context_seconds", 45.0)):
+                e.return_to_goal_frames += 1
+            e.last_goal_area_score = goal_score
             peer_distances = [math.hypot(box.center[0]-p.center[0], box.center[1]-p.center[1]) / max(box.diagonal, 1.0)
                               for p in persons if p.track_id != box.track_id]
             e.isolation_sum += min(1.0, (min(peer_distances) if peer_distances else 3.0) / 3.0)
@@ -186,6 +195,10 @@ class AutomaticGoalkeeperDetector:
             ball_contact = min(1.0, sum(e.ball_contact_frames for e in cluster) / max(1, int(self.cfg.get("bootstrap_ball_contact_target", 3))))
             persistence = min(1.0, n / max(1, int(self.cfg.get("bootstrap_observation_target", 40))))
             field_excursion = sum(e.field_excursion_frames for e in cluster) / n
+            advanced_start = sum(e.advanced_start_frames for e in cluster) / n
+            return_to_goal = min(1.0, sum(e.return_to_goal_frames for e in cluster) / max(1, int(self.cfg.get("bootstrap_return_to_goal_target", 2))))
+            restart_context = advanced_start >= float(self.cfg.get("bootstrap_restart_context_ratio", .25))
+            effective_field_excursion = field_excursion * (float(self.cfg.get("bootstrap_restart_field_penalty_factor", .15)) if restart_context else 1.0)
             weights = self.cfg.get("bootstrap_weights", {})
             score = (
                 float(weights.get("shirt_uniqueness", .24))*shirt_uniqueness +
@@ -197,8 +210,9 @@ class AutomaticGoalkeeperDetector:
                 float(weights.get("horizontal_patrol", .07))*patrol +
                 float(weights.get("ball_contact", .08))*ball_contact +
                 float(weights.get("persistence", .10))*persistence +
-                float(weights.get("low_movement", .05))*low_movement -
-                float(weights.get("field_excursion_penalty", .08))*field_excursion
+                float(weights.get("low_movement", .05))*low_movement +
+                float(weights.get("return_to_goal", .16))*return_to_goal -
+                float(weights.get("field_excursion_penalty", .08))*effective_field_excursion
             )
             latest = max(cluster, key=lambda x: x.last_timestamp)
             rows.append({
@@ -208,7 +222,9 @@ class AutomaticGoalkeeperDetector:
                 "goal_area": goal_area, "center_corridor": center_corridor, "isolation": isolation,
                 "depth_stability": depth_stability, "horizontal_patrol": patrol,
                 "low_movement": low_movement, "ball_contact": ball_contact, "persistence": persistence,
-                "field_excursion": field_excursion, "observations": n, "last_timestamp": latest.last_timestamp,
+                "field_excursion": field_excursion, "effective_field_excursion": effective_field_excursion,
+                "advanced_start": advanced_start, "return_to_goal": return_to_goal,
+                "restart_context": restart_context, "observations": n, "last_timestamp": latest.last_timestamp,
             })
         ranking = sorted(rows, key=lambda row: row["score"], reverse=True)
         self.rank_history.append({"timestamp": max((e.last_timestamp for e in eligible), default=0.0), "ranking": ranking[:8]})
@@ -221,18 +237,30 @@ class AutomaticGoalkeeperDetector:
         best, second = ranking[0], (ranking[1]["score"] if len(ranking) > 1 else 0.0)
         margin = best["score"] - second
         confidence = max(0.0, min(1.0, .72*best["score"] + .28*min(1.0, margin/.12)))
-        selected = best["score"] >= float(self.cfg.get("bootstrap_min_score", .50)) and confidence >= float(self.cfg.get("bootstrap_min_confidence", .56)) and margin >= float(self.cfg.get("bootstrap_min_margin", .035))
+        elapsed = max((getattr(e, "last_timestamp", 0.0) for e in self.tracks.values()), default=0.0)
+        restart_context = bool(best.get("restart_context", False))
+        min_confidence = float(self.cfg.get("bootstrap_min_confidence", .56))
+        min_margin = float(self.cfg.get("bootstrap_min_margin", .035))
+        if restart_context:
+            min_confidence = float(self.cfg.get("bootstrap_restart_min_confidence", min_confidence))
+            min_margin = float(self.cfg.get("bootstrap_restart_min_margin", min_margin))
+        selected = best["score"] >= float(self.cfg.get("bootstrap_min_score", .50)) and confidence >= min_confidence and margin >= min_margin
         evidence = self.tracks[int(best["track_id"])]
         result = {
             "selected": selected, "keeper_label": "Keeper #1", "selected_track_id": int(best["track_id"]) if selected else None,
             "logical_identity_id": best.get("logical_identity_id", f"keeper-candidate-track-{best['track_id']}"),
             "member_track_ids": best.get("member_track_ids", [best["track_id"]]),
             "score": best["score"], "confidence": confidence, "margin_to_second": margin,
-            "window_seconds": float(self.cfg.get("bootstrap_max_seconds", 60.0)),
+            "window_seconds": float(self.cfg.get("bootstrap_max_seconds", 240.0)),
+            "observation_elapsed_seconds": elapsed,
+            "start_context": "restart_or_break" if restart_context else "normal_or_unknown",
+            "initial_keeper_position": "advanced" if restart_context else "unknown",
+            "automatic_selection_deferred": not selected,
+            "selection_confirmed_at": elapsed if selected else None,
             "ranking": ranking[:max(1, int(self.cfg.get("bootstrap_top_candidates", 8)))],
             "rank_history": self.rank_history, "weights": dict(self.cfg.get("bootstrap_weights", {})),
-            "method": "automatic_initial_window",
-            "strategy": "multistage_behaviour_clustering",
+            "method": "automatic_initial_window" if selected else "automatic_evidence_pending",
+            "strategy": "whole_game_logical_identity_evidence",
             "selection_failure_reason": "" if selected else ("insufficient_margin" if margin < float(self.cfg.get("bootstrap_min_margin", .035)) else "insufficient_confidence"),
         }
         return (evidence.last_box if selected else None), (evidence.last_frame if selected else None), result

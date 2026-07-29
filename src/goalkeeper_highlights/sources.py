@@ -97,6 +97,7 @@ def prepare_source_timeline(
     ffprobe: str = "ffprobe",
     overwrite: bool = False,
     progress_callback=None,
+    source_selection: str = "all",
 ) -> SourceManifest:
     """Build metadata for a virtual multi-file timeline without concatenating.
 
@@ -108,6 +109,10 @@ def prepare_source_timeline(
     # Defensive second sort: callers and future refactorings must not be able to
     # accidentally reintroduce filesystem order before probing/decoding.
     files = sorted(files, key=natural_sort_key)
+    if source_selection == "last" and files:
+        files = [files[-1]]
+    elif source_selection != "all":
+        raise ValueError(f"Unsupported source_selection: {source_selection}")
     if progress_callback:
         progress_callback(0.005, "Quellreihenfolge: " + " -> ".join(video.name for video in files))
     items: list[SourceItem] = []
@@ -126,7 +131,7 @@ def prepare_source_timeline(
         offset += duration
 
     manifest = SourceManifest(
-        source_type="directory" if source.is_dir() else "file",
+        source_type=("directory-last" if source.is_dir() and source_selection == "last" else "directory" if source.is_dir() else "file"),
         source_path=str(source.resolve()),
         total_duration_seconds=offset,
         files=items,

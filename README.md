@@ -384,12 +384,12 @@ A second, generic pass scans the complete stored detection timeline for close ke
 
 ## Debug package for missed saves (0.13.7)
 
-Every completed analysis creates `goalkeeper_highlights_debug_v0.13.8.zip` in the output directory. The archive deliberately excludes all video files. Upload this archive together with your manual assessment of the generated clips. It contains the final and rejected candidate decisions, raw analysis database, effective configuration, routing and Qwen details, performance information, and `uncovered_suspicious_windows.json` with timeline regions that may contain missed short goalkeeper actions.
+Every completed analysis creates `goalkeeper_highlights_debug_v0.13.9.zip` in the output directory. The archive deliberately excludes all video files. Upload this archive together with your manual assessment of the generated clips. It contains the final and rejected candidate decisions, raw analysis database, effective configuration, routing and Qwen details, performance information, and `uncovered_suspicious_windows.json` with timeline regions that may contain missed short goalkeeper actions.
 
 
 ## 0.13.7 missed-save diagnostics
 
-The automatic goalkeeper bootstrap now observes a longer configurable window and only accepts an automatic result when its score, confidence and margin to the runner-up are sufficient. Strong suspicious windows that are not covered by normal candidates can become conservative recovery candidates. The generated `goalkeeper_highlights_debug_v0.13.8.zip` contains no video files and records every candidate stage, keeper track changes and ball-detection gaps.
+The automatic goalkeeper bootstrap now observes a longer configurable window and only accepts an automatic result when its score, confidence and margin to the runner-up are sufficient. Strong suspicious windows that are not covered by normal candidates can become conservative recovery candidates. The generated `goalkeeper_highlights_debug_v0.13.9.zip` contains no video files and records every candidate stage, keeper track changes and ball-detection gaps.
 
 
 ## 0.13.8 keeper evidence and full trace
@@ -397,3 +397,7 @@ The automatic goalkeeper bootstrap now observes a longer configurable window and
 Automatic keeper selection now groups temporary ByteTrack IDs into logical identities and evaluates goalkeeper-like behaviour over up to 60 seconds. The score includes shirt uniqueness, central goal-axis occupancy, isolation, depth stability, horizontal patrol behaviour, ball contacts and persistence. If the result is still ambiguous, the interactive selector remains the safe fallback and the exact reason is written to the debug package.
 
 The debug archive contains `candidate_pipeline_trace.json`, `extended_recovery_analysis.json`, ranking history, identity timelines and all candidate stages. No video files are included. OpenCV packet-read tolerance is forced before importing OpenCV; override it with `GOALKEEPER_OPENCV_READ_ATTEMPTS` only when required.
+
+## 0.13.9 deferred goalkeeper evidence
+
+The automatic goalkeeper resolver no longer assumes that the goalkeeper must already be positioned near the goal when a source starts. It keeps logical-person evidence open for up to `keeper.bootstrap_max_seconds` (240 seconds by default), detects likely restart/break contexts, reduces the early midfield-position penalty, and adds positive evidence when the same logical identity returns to a goal region. The manual click fallback is only shown after the deferred evidence horizon remains inconclusive.

@@ -172,7 +172,7 @@ def create_debug_package(output: Path, candidates: list[Candidate], timings: dic
         fields = ["stage", "index", "candidate_id", "trigger_time", "category", "accepted", "reason"]
         writer = csv.DictWriter(handle, fieldnames=fields); writer.writeheader(); writer.writerows(lifecycle_rows)
 
-    readme = """# Debug package v0.13.8
+    readme = """# Debug package v0.13.9
 
 This archive intentionally contains no video files.
 
@@ -192,7 +192,7 @@ to detection, keeper identity, recovery, merge, routing or final classification.
     (debug_dir / "README_DEBUG.md").write_text(readme, encoding="utf-8")
 
     store.checkpoint()
-    archive = output / "goalkeeper_highlights_debug_v0.13.8.zip"
+    archive = output / "goalkeeper_highlights_debug_v0.13.9.zip"
     excluded_suffixes = {".mp4", ".mov", ".mkv", ".avi", ".m4v", ".webm"}
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
         for path in sorted(output.rglob("*")):
