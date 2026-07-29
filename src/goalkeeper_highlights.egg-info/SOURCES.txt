@@ -44,5 +44,6 @@ tests/test_sources.py
 tests/test_store.py
 tests/test_v0137.py
 tests/test_v0138.py
+tests/test_v0139.py
 tests/test_video.py
 tests/test_virtual_timeline.py
