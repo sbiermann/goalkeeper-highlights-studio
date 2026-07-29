@@ -1,3 +1,11 @@
+Current stabilization release: 0.13.8, focused on keeper identity and missed-save recovery.
+
+# Roadmap
+
+## Current focus: missed goalkeeper saves
+
+Version 0.13.6 establishes complete diagnostics. Following releases should use the generated non-video debug package and manual clip feedback to improve recall of short saves before adding unrelated features.
+
 # Roadmap
 
 ## 0.9.0

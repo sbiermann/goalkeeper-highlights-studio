@@ -10,6 +10,7 @@ from typing import Callable
 
 from .classification import classify
 from .detection import clamp_clip_windows_to_sources, detect
+from .diagnostics import create_debug_package
 from .profiling import PerformanceProfiler
 from .reporting import write_reports
 from .store import AnalysisStore
@@ -171,6 +172,13 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
             timings["keeper_confidence"] = float(keeper_detection.get("stabilized_confidence", keeper_detection.get("confidence", 0.0)))
             timings["keeper_reidentifications"] = int(keeper_detection.get("reidentification_count", 0))
         write_reports(output, candidates, timings, keeper_detection if isinstance(keeper_detection, dict) else {})
+        if bool(config.get("diagnostics", {}).get("enabled", True)):
+            debug_archive = create_debug_package(
+                output, candidates, timings,
+                keeper_detection if isinstance(keeper_detection, dict) else {},
+                config, store,
+            )
+            timings["debug_package"] = str(debug_archive)
         if progress_callback:
             progress_callback(1.0, f"Fertig: {len(accepted)} Szenen")
         if verbose:

@@ -87,3 +87,22 @@ Maintenance release for corrected routing statistics, explicit Qwen pass account
 
 ## Version 0.13.5
 Verified audit/stabilization release with last-source analysis and an explicit feature verification matrix.
+
+## Version 0.13.6 diagnostic contract
+
+The primary optimization target is recall of missed goalkeeper saves. Every successful analysis must create a non-video debug ZIP containing candidate decisions, the SQLite analysis database, effective configuration, reports, profiling information, and uncovered suspicious timeline windows. Do not add hard-coded match timestamps or filenames.
+
+
+## v0.13.7 invariants
+- Keep the logical keeper identity independent from temporary ByteTrack IDs.
+- Never hard-code match timestamps or filenames.
+- Preserve all candidate lifecycle stages in the video-free debug package.
+
+
+## v0.13.8 invariants
+
+- Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.
+- Automatic fallback reasons and ranking history must remain in the debug package.
+- Every candidate must keep a stable id and merge ancestry.
+- Debug archives must never contain video files.
+- OpenCV read-attempt configuration must be applied before importing cv2.

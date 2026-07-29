@@ -173,6 +173,39 @@ class AnalysisStore:
             """
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def keeper_identity_timeline(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT frame_index,timestamp,keeper_track_id,person_count,ball_count FROM frames ORDER BY timestamp"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def ball_detection_gaps(self, minimum_gap_seconds: float = 0.5) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            "SELECT timestamp,ball_count FROM frames ORDER BY timestamp"
+        ).fetchall()
+        gaps: list[dict[str, Any]] = []
+        start = None
+        last = None
+        for row in rows:
+            ts = float(row["timestamp"])
+            if int(row["ball_count"]) == 0:
+                if start is None:
+                    start = ts
+                last = ts
+            elif start is not None and last is not None:
+                if last - start >= minimum_gap_seconds:
+                    gaps.append({"start": start, "end": last, "duration": last-start})
+                start = last = None
+        if start is not None and last is not None and last-start >= minimum_gap_seconds:
+            gaps.append({"start": start, "end": last, "duration": last-start})
+        return gaps
+
+    def checkpoint(self) -> None:
+        """Flush the WAL so the database can be copied into a debug package."""
+        self.connection.commit()
+        self.connection.execute("PRAGMA wal_checkpoint(FULL)").fetchall()
+
     def upsert_job(self, job_id: str, status: str, progress: float, message: str, payload: dict | None = None) -> None:
         self.connection.execute(
             """

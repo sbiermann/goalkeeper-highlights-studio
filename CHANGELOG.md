@@ -1,3 +1,34 @@
+## 0.13.8
+
+- Reworked automatic goalkeeper selection around multi-stage behavioural evidence instead of a single-track startup score.
+- Aggregates fragmented ByteTrack IDs into logical keeper candidates using shirt appearance and temporal continuity.
+- Added central goal-axis, isolation, depth-stability and horizontal-patrol signals plus a field-excursion penalty.
+- Extended the bootstrap observation window to 60 seconds and records the complete ranking history and explicit fallback reason.
+- Added stable candidate ancestry and `candidate_pipeline_trace.json` for raw, recovery, validation, merge, routing and final decisions.
+- Added `extended_recovery_analysis.json` to show whether each suspicious uncovered window became a recovery candidate.
+- Forces `OPENCV_FFMPEG_READ_ATTEMPTS=65536` before OpenCV import; `GOALKEEPER_OPENCV_READ_ATTEMPTS` can override it.
+- Debug archive is now `goalkeeper_highlights_debug_v0.13.8.zip` and still contains no video files.
+
+## 0.13.7
+
+- Reworked goalkeeper bootstrap with an adaptive 15-45 second observation window, repeated ranking, top-candidate output and minimum winner margin.
+- Stabilized logical goalkeeper identity across ByteTrack ID changes.
+- Added recovery candidates from strong uncovered diagnostic activity windows.
+- Added full candidate lifecycle, keeper identity timeline, re-identification events and ball detection gaps to the video-free debug package.
+- Heuristic HIGH/MEDIUM/LOW routing is now recorded even when Qwen is disabled.
+- Debug archive renamed to `goalkeeper_highlights_debug_v0.13.7.zip`.
+
+# Changelog
+
+## 0.13.6 - Missed-save diagnostics
+
+- Focuses the next optimization cycle on goalkeeper saves that were not detected.
+- Creates `goalkeeper_highlights_debug_v0.13.6.zip` automatically after every completed analysis.
+- The debug archive contains all candidate decisions, effective configuration, performance data, raw SQLite analysis data and uncovered suspicious timeline windows, but no video files.
+- Adds a complete per-candidate decision path including routing, Qwen passes, recovery status, scores and rejection reasons.
+- Adds a diagnostic scan for ball/keeper activity that was not covered by any final candidate.
+- Sets `OPENCV_FFMPEG_READ_ATTEMPTS=65536` before OpenCV initialization.
+
 # 0.13.5
 
 Verified audit and stabilization release.

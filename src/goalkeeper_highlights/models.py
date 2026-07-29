@@ -85,10 +85,19 @@ class Candidate:
     qwen_second_pass_rescued: bool = False
     qwen_first_pass_seconds: float = 0.0
     qwen_second_pass_seconds: float = 0.0
+    candidate_id: str = ""
+    parent_candidate_ids: list[str] = None  # type: ignore[assignment]
+    lifecycle_stage: str = "final"
+    lifecycle_reason: str = ""
+    lifecycle_events: list[dict[str, Any]] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.score_breakdown is None:
             self.score_breakdown = {}
+        if self.parent_candidate_ids is None:
+            self.parent_candidate_ids = []
+        if self.lifecycle_events is None:
+            self.lifecycle_events = []
 
     def as_dict(self) -> dict:
         return asdict(self)

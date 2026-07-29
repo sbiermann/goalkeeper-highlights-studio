@@ -121,13 +121,15 @@ def should_retry_qwen(*, confidence: float, contact: bool, parse_failed: bool, c
 def classify(video, candidates: list[Candidate], config: dict) -> dict[str, float | int]:
     cfg = config["qwen"]
     if not cfg["enabled"]:
+        heuristic_started = time.perf_counter()
         for candidate in candidates:
+            calculate_routing(candidate, config)
             if not candidate.category or candidate.category == "unclassified":
                 candidate.category = "heuristic"
             if not candidate.description:
                 candidate.description = "Mehrfach bestätigte Ballnähe zum re-identifizierten Torwart."
             candidate.quality_score = max(candidate.quality_score, candidate.heuristic_score)
-        return {"heuristic_seconds": 0.0, "qwen_first_pass_seconds": 0.0, "qwen_second_pass_seconds": 0.0}
+        return {"heuristic_seconds": time.perf_counter() - heuristic_started, "qwen_first_pass_seconds": 0.0, "qwen_second_pass_seconds": 0.0}
 
     minimum_confidence = float(cfg.get("minimum_confidence", 0.55))
     minimum_quality = float(cfg.get("minimum_quality_score", 0.48))

@@ -18,22 +18,34 @@ keeper:
   # Version 0.10 analyzes the first seconds automatically. The click dialog is
   # only used as a fallback when the automatic result is not confident enough.
   automatic_initial_detection: true
-  bootstrap_seconds: 8.0
+  bootstrap_seconds: 15.0
+  bootstrap_max_seconds: 60.0
+  bootstrap_recheck_seconds: 5.0
   bootstrap_min_observations: 4
-  bootstrap_observation_target: 12
+  bootstrap_observation_target: 40
   bootstrap_histogram_samples: 20
   bootstrap_min_score: 0.48
-  bootstrap_min_confidence: 0.52
+  bootstrap_min_confidence: 0.58
   bootstrap_movement_scale: 0.025
   bootstrap_ball_contact_distance: 1.25
   bootstrap_ball_contact_target: 3
+  bootstrap_min_margin: 0.035
+  bootstrap_top_candidates: 5
+  bootstrap_identity_hist_distance: 0.30
+  bootstrap_identity_max_gap_seconds: 18.0
+  bootstrap_identity_overlap_tolerance_seconds: 0.5
   bootstrap_weights:
-    shirt_uniqueness: 0.32
-    camera_proximity: 0.22
-    goal_area: 0.22
-    low_movement: 0.10
+    shirt_uniqueness: 0.24
+    camera_proximity: 0.08
+    goal_area: 0.10
+    center_corridor: 0.18
+    isolation: 0.10
+    depth_stability: 0.10
+    horizontal_patrol: 0.07
+    low_movement: 0.05
     ball_contact: 0.08
-    persistence: 0.06
+    persistence: 0.10
+    field_excursion_penalty: 0.08
   interactive_selection: true
   goal_roi: [0.15, 0.05, 0.85, 0.95]
   # Two broad depth bands work well for a camera behind one goal: the near goal
@@ -56,10 +68,14 @@ keeper:
   minimum_heuristic_score: 0.35
   reid_min_confidence: 0.62
   reid_position_scale: 4.0
-  reid_confirmation_frames: 4
-  reid_switch_cooldown_seconds: 0.8
+  reid_confirmation_frames: 6
+  reid_switch_cooldown_seconds: 1.5
   reid_keep_confidence: 0.50
-  reid_switch_margin: 0.08
+  reid_switch_margin: 0.12
+  reid_reference_weight: 0.25
+  reid_continuity_weight: 0.30
+  reid_goal_area_weight: 0.25
+  reid_shirt_contrast_weight: 0.20
   reid_verbose_console: false
   confidence_lock_after_seconds: 30.0
   # Keeper identity score: shirt contrast 45%, goal area 30%, continuity 15%,
@@ -214,8 +230,24 @@ event_engine:
     minimum_ball_motion: 0.35
     minimum_approach_rate: 0.30
     minimum_close_frames: 2
+    diagnostic_window_recovery_enabled: true
+    diagnostic_min_score: 0.42
+    diagnostic_min_ball_confidence: 0.20
+    diagnostic_min_keeper_motion: 0.03
+    diagnostic_max_distance: 1.45
+    diagnostic_group_gap_seconds: 2.5
     single_frame_min_ball_confidence: 0.50
     group_gap_seconds: 1.25
     existing_candidate_mask_seconds: 1.0
     seconds_before: 8.0
     seconds_after: 9.0
+
+
+# Diagnostic-only analysis for finding missed goalkeeper saves.
+# It does not alter acceptance or classification decisions.
+diagnostics:
+  enabled: true
+  window_seconds: 2.0
+  candidate_mask_seconds: 1.0
+  minimum_ball_confidence: 0.12
+  minimum_keeper_motion: 0.035

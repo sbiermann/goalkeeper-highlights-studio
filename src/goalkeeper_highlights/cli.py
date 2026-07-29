@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import time
 from pathlib import Path
+
+# OpenCV reads this during backend initialization. Set it before importing the pipeline.
+os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = os.environ.get("GOALKEEPER_OPENCV_READ_ATTEMPTS", "65536")
 
 from .benchmark import run_benchmark
 from .config import load_config

@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Iterator, Protocol
 
-os.environ.setdefault("OPENCV_FFMPEG_READ_ATTEMPTS", "65536")
+os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = os.environ.get("GOALKEEPER_OPENCV_READ_ATTEMPTS", "65536")
 import cv2
 import numpy as np
 

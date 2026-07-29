@@ -10,6 +10,7 @@ src/goalkeeper_highlights/config.py
 src/goalkeeper_highlights/decoder.py
 src/goalkeeper_highlights/default.yaml
 src/goalkeeper_highlights/detection.py
+src/goalkeeper_highlights/diagnostics.py
 src/goalkeeper_highlights/event_engine.py
 src/goalkeeper_highlights/keeper_bootstrap.py
 src/goalkeeper_highlights/models.py
@@ -31,6 +32,7 @@ tests/test_action_aware_clips.py
 tests/test_classic_action_rescue.py
 tests/test_cli_progress.py
 tests/test_detection.py
+tests/test_diagnostics.py
 tests/test_event_engine.py
 tests/test_keeper_bootstrap.py
 tests/test_last_source_cli.py
@@ -40,5 +42,7 @@ tests/test_routing.py
 tests/test_source_selection.py
 tests/test_sources.py
 tests/test_store.py
+tests/test_v0137.py
+tests/test_v0138.py
 tests/test_video.py
 tests/test_virtual_timeline.py

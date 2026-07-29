@@ -380,3 +380,20 @@ False positives from static or incorrect ball tracks are filtered by `clips.inte
 ## Recovery and robust decoding (0.13.1)
 
 A second, generic pass scans the complete stored detection timeline for close keeper/ball geometry and meaningful keeper movement not already covered by an event. It does not contain game-specific filenames or timestamps. OpenCV decoding uses a higher FFmpeg packet-read limit and automatically reopens the source after recoverable read failures.
+
+
+## Debug package for missed saves (0.13.7)
+
+Every completed analysis creates `goalkeeper_highlights_debug_v0.13.8.zip` in the output directory. The archive deliberately excludes all video files. Upload this archive together with your manual assessment of the generated clips. It contains the final and rejected candidate decisions, raw analysis database, effective configuration, routing and Qwen details, performance information, and `uncovered_suspicious_windows.json` with timeline regions that may contain missed short goalkeeper actions.
+
+
+## 0.13.7 missed-save diagnostics
+
+The automatic goalkeeper bootstrap now observes a longer configurable window and only accepts an automatic result when its score, confidence and margin to the runner-up are sufficient. Strong suspicious windows that are not covered by normal candidates can become conservative recovery candidates. The generated `goalkeeper_highlights_debug_v0.13.8.zip` contains no video files and records every candidate stage, keeper track changes and ball-detection gaps.
+
+
+## 0.13.8 keeper evidence and full trace
+
+Automatic keeper selection now groups temporary ByteTrack IDs into logical identities and evaluates goalkeeper-like behaviour over up to 60 seconds. The score includes shirt uniqueness, central goal-axis occupancy, isolation, depth stability, horizontal patrol behaviour, ball contacts and persistence. If the result is still ambiguous, the interactive selector remains the safe fallback and the exact reason is written to the debug package.
+
+The debug archive contains `candidate_pipeline_trace.json`, `extended_recovery_analysis.json`, ranking history, identity timelines and all candidate stages. No video files are included. OpenCV packet-read tolerance is forced before importing OpenCV; override it with `GOALKEEPER_OPENCV_READ_ATTEMPTS` only when required.

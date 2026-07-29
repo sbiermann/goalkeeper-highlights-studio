@@ -70,6 +70,8 @@ def merge_candidates(items: list[Candidate], gap: float, duration: float) -> lis
                 current.score_breakdown = dict(candidate.score_breakdown)
                 current.possession_bonus = candidate.possession_bonus
                 current.cooldown_penalty = candidate.cooldown_penalty
+            current.parent_candidate_ids = list(dict.fromkeys([*current.parent_candidate_ids, current.candidate_id, *candidate.parent_candidate_ids, candidate.candidate_id]))
+            current.lifecycle_events.append({"stage": "merge", "merged_candidate_id": candidate.candidate_id, "reason": "overlapping_or_within_merge_gap"})
             if candidate.min_normalized_distance < current.min_normalized_distance:
                 current.min_normalized_distance = candidate.min_normalized_distance
                 current.trigger_time = candidate.trigger_time
@@ -207,6 +209,100 @@ def recover_missed_keeper_actions(store, existing: list[Candidate], duration: fl
             action_start=max(0.0, start_t-before), action_end=end_t,
             clip_boundary_reason="dynamic_recovery_pass", recovery_candidate=True,
         ))
+    return recovered
+
+
+def recover_uncovered_activity_windows(store, existing: list[Candidate], duration: float, config: dict[str, Any]) -> list[Candidate]:
+    """Turn strong uncovered diagnostic activity into conservative recovery candidates.
+
+    This path is deliberately independent from a continuous ByteTrack id. It uses the
+    logical keeper box recorded for each processed frame and tolerates sparse ball
+    detections. It is intended for short saves that disappear before the normal event
+    engine can collect enough consecutive contact frames.
+    """
+    cfg = (config.get("event_engine", {}).get("recovery_pass", {}) or {})
+    if store is None or not bool(cfg.get("diagnostic_window_recovery_enabled", True)):
+        return []
+    rows = store.recovery_observations()
+    if not rows:
+        return []
+    bucket_seconds = max(0.5, float(config.get("diagnostics", {}).get("window_seconds", 2.0)))
+    min_score = float(cfg.get("diagnostic_min_score", 0.42))
+    min_ball = float(cfg.get("diagnostic_min_ball_confidence", 0.20))
+    min_motion = float(cfg.get("diagnostic_min_keeper_motion", 0.03))
+    max_distance = float(cfg.get("diagnostic_max_distance", 1.45))
+    group_gap = float(cfg.get("diagnostic_group_gap_seconds", 2.5))
+    mask = float(cfg.get("existing_candidate_mask_seconds", 1.0))
+    before = float(cfg.get("seconds_before", 8.0))
+    after = float(cfg.get("seconds_after", 9.0))
+
+    buckets: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        buckets.setdefault(int(float(row["timestamp"]) // bucket_seconds), []).append(row)
+
+    signals: list[dict[str, Any]] = []
+    previous_center: tuple[float, float] | None = None
+    for bucket, group in sorted(buckets.items()):
+        start = bucket * bucket_seconds
+        end = start + bucket_seconds
+        if any(c.start - mask <= end and c.end + mask >= start for c in existing):
+            continue
+        centers: list[tuple[float, float]] = []
+        ball_conf = 0.0
+        min_distance = math.inf
+        best_track = None
+        for row in group:
+            kx = (float(row["kx1"]) + float(row["kx2"])) / 2
+            ky = (float(row["ky1"]) + float(row["ky2"])) / 2
+            bx = (float(row["bx1"]) + float(row["bx2"])) / 2
+            by = (float(row["by1"]) + float(row["by2"])) / 2
+            diag = max(1.0, math.hypot(float(row["kx2"]) - float(row["kx1"]), float(row["ky2"]) - float(row["ky1"])))
+            centers.append((kx, ky))
+            ball_conf = max(ball_conf, float(row["ball_confidence"] or 0.0))
+            min_distance = min(min_distance, math.hypot(kx - bx, ky - by) / diag)
+            best_track = row.get("keeper_track_id")
+        motion = 0.0
+        if centers:
+            motion = math.hypot(centers[-1][0] - centers[0][0], centers[-1][1] - centers[0][1]) / 1000.0
+            if previous_center is not None:
+                motion = max(motion, math.hypot(centers[0][0] - previous_center[0], centers[0][1] - previous_center[1]) / 1000.0)
+            previous_center = centers[-1]
+        score = min(1.0, ball_conf * 0.48 + min(motion * 4.0, 1.0) * 0.32 + (1.0 / (1.0 + min_distance)) * 0.20)
+        if ball_conf >= min_ball and min_distance <= max_distance and (motion >= min_motion or score >= min_score):
+            signals.append({"start": start, "end": end, "score": score, "ball": ball_conf, "motion": motion,
+                            "distance": min_distance, "track": best_track, "observations": len(group)})
+
+    grouped: list[list[dict[str, Any]]] = []
+    for signal in signals:
+        if not grouped or signal["start"] - grouped[-1][-1]["end"] > group_gap:
+            grouped.append([signal])
+        else:
+            grouped[-1].append(signal)
+
+    recovered: list[Candidate] = []
+    for index, group in enumerate(grouped, 1):
+        start_t = group[0]["start"]
+        end_t = group[-1]["end"]
+        score = max(item["score"] for item in group)
+        ball = max(item["ball"] for item in group)
+        motion = max(item["motion"] for item in group)
+        distance = min(item["distance"] for item in group)
+        candidate = Candidate(
+            start=max(0.0, start_t-before), end=min(duration, end_t+after), trigger_time=start_t,
+            min_normalized_distance=distance, keeper_track_id=group[0]["track"], accepted=True,
+            category="recovery_uncovered_activity", confidence=score,
+            description="Nicht abgedeckte Ball-/Torwartaktivität aus dem Diagnosepfad als Recovery-Kandidat übernommen.",
+            identity_confidence=0.65, contact_frames=sum(item["observations"] for item in group),
+            ball_confidence=ball, heuristic_score=score, quality_score=score, event_score=score,
+            acceptance_threshold=min_score, keeper_motion=motion,
+            score_breakdown={"diagnostic_window_score": score, "diagnostic_ball_confidence": ball,
+                             "diagnostic_keeper_motion": motion, "diagnostic_min_distance": distance,
+                             "diagnostic_window_count": len(group)},
+            action_start=start_t, action_end=end_t, clip_boundary_reason="uncovered_activity_recovery",
+            recovery_candidate=True, candidate_id=f"diagnostic-recovery-{index:04d}",
+            lifecycle_stage="recovered", lifecycle_reason="uncovered_suspicious_window",
+        )
+        recovered.append(candidate)
     return recovered
 
 
@@ -524,7 +620,12 @@ class KeeperIdentity:
             goal_area = self._goal_area_score(box)
             continuity = self._continuity_score(box)
             reference = _hist_similarity(self.reference_hist, descriptors[index])
-            score = 0.45*contrast + 0.30*goal_area + 0.15*continuity + 0.10*reference
+            w_contrast = float(self.cfg.get("reid_shirt_contrast_weight", 0.20))
+            w_goal = float(self.cfg.get("reid_goal_area_weight", 0.25))
+            w_continuity = float(self.cfg.get("reid_continuity_weight", 0.30))
+            w_reference = float(self.cfg.get("reid_reference_weight", 0.25))
+            weight_sum = max(0.001, w_contrast + w_goal + w_continuity + w_reference)
+            score = (w_contrast*contrast + w_goal*goal_area + w_continuity*continuity + w_reference*reference) / weight_sum
             scored.append((score, box, {
                 "shirt_contrast": contrast,
                 "goal_area": goal_area,
@@ -607,7 +708,10 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
 
     identity: KeeperIdentity | None = None
     automatic_enabled = bool(keeper_cfg.get("automatic_initial_detection", True))
-    bootstrap_seconds = max(0.0, float(keeper_cfg.get("bootstrap_seconds", 8.0)))
+    bootstrap_seconds = max(0.0, float(keeper_cfg.get("bootstrap_seconds", 15.0)))
+    bootstrap_max_seconds = max(bootstrap_seconds, float(keeper_cfg.get("bootstrap_max_seconds", 45.0)))
+    bootstrap_recheck_seconds = max(1.0, float(keeper_cfg.get("bootstrap_recheck_seconds", 5.0)))
+    next_bootstrap_check = bootstrap_seconds
     bootstrap = AutomaticGoalkeeperDetector(keeper_cfg, decoder.width, decoder.height) if automatic_enabled else None
     bootstrap_complete = not automatic_enabled
     bootstrap_result: dict[str, Any] = {"selected": False, "method": "disabled"}
@@ -685,19 +789,21 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
             if identity is None and bootstrap is not None and not bootstrap_complete:
                 bootstrap.observe(decoded.image, persons, balls, decoded.timestamp)
                 if progress_callback:
-                    progress_callback(min(0.03, decoded.timestamp / max(duration, 1)), f"Automatische Torwarterkennung: {decoded.timestamp:.1f}/{bootstrap_seconds:.1f}s")
-                if decoded.timestamp >= bootstrap_seconds:
+                    progress_callback(min(0.03, decoded.timestamp / max(duration, 1)), f"Automatische Torwarterkennung: {decoded.timestamp:.1f}/{bootstrap_max_seconds:.1f}s")
+                if decoded.timestamp >= next_bootstrap_check:
                     selected_box, selected_frame, bootstrap_result = bootstrap.select()
-                    bootstrap_complete = True
+                    next_bootstrap_check += bootstrap_recheck_seconds
+                    bootstrap_result["observation_elapsed_seconds"] = decoded.timestamp
+                    bootstrap_complete = selected_box is not None or decoded.timestamp >= bootstrap_max_seconds
                     if selected_box is not None and selected_frame is not None:
                         identity = KeeperIdentity(selected_frame, selected_box, keeper_cfg, decoder.width, decoder.height)
                         keeper = selected_box
                         identity_confidence = float(bootstrap_result.get("confidence", .7))
                         if verbose_console:
                             print(f"Automatic goalkeeper detection: Keeper #1 = ByteTrack {keeper.track_id}, confidence {identity_confidence:.2f}")
-                    elif bootstrap_result.get("ranking"):
+                    elif bootstrap_complete and bootstrap_result.get("ranking"):
                         if verbose_console:
-                            print("Automatic goalkeeper detection was inconclusive; using configured fallback.")
+                            print("Automatic goalkeeper detection remained inconclusive; using configured fallback.")
                     if store is not None:
                         store.set_state("keeper_detection", bootstrap_result)
 
@@ -709,7 +815,11 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 if keeper:
                     identity = KeeperIdentity(decoded.image, keeper, keeper_cfg, decoder.width, decoder.height)
                     identity_confidence = 1.0
-                    bootstrap_result = {"selected": True, "method": "interactive_fallback", "keeper_label": "Keeper #1", "selected_track_id": keeper.track_id, "confidence": 1.0, "ranking": bootstrap_result.get("ranking", [])}
+                    bootstrap_result = {"selected": True, "method": "interactive_fallback", "keeper_label": "Keeper #1", "selected_track_id": keeper.track_id,
+                                        "confidence": 1.0, "manual_confirmation_confidence": 1.0,
+                                        "automatic_confidence": float(bootstrap_result.get("confidence", 0.0)),
+                                        "automatic_margin_to_second": float(bootstrap_result.get("margin_to_second", 0.0)),
+                                        "ranking": bootstrap_result.get("ranking", [])}
                     if store is not None:
                         store.set_state("keeper_detection", bootstrap_result)
                     if verbose_console:
@@ -801,12 +911,45 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
         if verbose_console:
             print(f"Keeper tracking summary: Keeper #1 re-identified {reid_count}x, median confidence {bootstrap_result.get('median_tracking_confidence', 0.0):.2f}")
 
+    for index, candidate in enumerate(candidates, 1):
+        if not candidate.candidate_id:
+            candidate.candidate_id = f"raw-{index:04d}"
+        candidate.lifecycle_stage = "raw"
+        candidate.lifecycle_events.append({"stage": "raw", "reason": "event_engine_candidate_created"})
     raw_candidate_count = len(candidates)
+    if store is not None:
+        store.set_state("raw_candidates", [c.as_dict() for c in candidates])
+
     recovered = recover_missed_keeper_actions(store, candidates, duration, config)
+    for index, candidate in enumerate(recovered, 1):
+        if not candidate.candidate_id:
+            candidate.candidate_id = f"recovery-{index:04d}"
+        candidate.lifecycle_stage = "recovered"
+        candidate.lifecycle_reason = candidate.lifecycle_reason or "dynamic_recovery_pass"
+        candidate.lifecycle_events.append({"stage": "recovery", "reason": candidate.lifecycle_reason})
+    diagnostic_recovered = recover_uncovered_activity_windows(store, candidates + recovered, duration, config)
     candidates.extend(recovered)
+    candidates.extend(diagnostic_recovered)
+    if store is not None:
+        store.set_state("recovery_candidates", [c.as_dict() for c in recovered + diagnostic_recovered])
+
     candidates = rescue_classic_keeper_actions(candidates, clips)
+    for candidate in candidates:
+        candidate.lifecycle_events.append({"stage": "validation", "accepted": candidate.accepted, "reason": candidate.rejection_reason or "validated"})
+    if store is not None:
+        store.set_state("validated_candidates", [c.as_dict() for c in candidates])
     merged = merge_candidates(candidates, float(clips["merge_gap_seconds"]), duration)
+    for index, candidate in enumerate(merged, 1):
+        if not candidate.candidate_id:
+            candidate.candidate_id = f"merged-{index:04d}"
+        candidate.lifecycle_stage = "merged"
+        candidate.lifecycle_events.append({"stage": "merged", "reason": "merge_stage_complete"})
+    if store is not None:
+        store.set_state("merged_candidates", [c.as_dict() for c in merged])
     merged = extend_and_chain_clip_windows(merged, duration, clips)
+    for candidate in merged:
+        candidate.lifecycle_stage = "final"
+        candidate.lifecycle_events.append({"stage": "clip_planning", "reason": candidate.clip_boundary_reason or "final_window_planned"})
     if store is not None:
         store.set_state(
             "detection_stats",
@@ -814,7 +957,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "raw_candidates": raw_candidate_count,
                 "final_candidates": len(merged),
                 "merged_candidates": max(0, raw_candidate_count + len(recovered) - len(merged)),
-                "recovery_candidates": len(recovered),
+                "recovery_candidates": len(recovered) + len(diagnostic_recovered),
+                "diagnostic_recovery_candidates": len(diagnostic_recovered),
             },
         )
     # Acceptance is decided by GoalkeeperEventEngine using the threshold of the
