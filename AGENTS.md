@@ -124,6 +124,15 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Zusätzliche Diagnostik für die Recovery-Distribution-Fortsetzung.
 - Alle Invarianten aus v0.13.11 und v0.13.10 bleiben erhalten.
 
+## Version 0.13.13
+
+- Kontrollierter `recovery_window_tail`-Fallback für akzeptierte Recovery-Aktionen mit unvollständigem Timeout-Ende.
+- Reihenfolge der Clip-End-Entscheidung: `controlled_release` → `recovery_distribution_continuation` → `recovery_window_tail` → `timeout`.
+- Fallback nutzt vorhandene Recovery-Boundary-Evidenz und verlängert nicht pauschal alle Recovery-Clips.
+- Zusätzlicher Tail bleibt konservativ begrenzt (`recovery_window_tail_max_extension_seconds`) und respektiert weiterhin die maximale dynamische Clipdauer.
+- `action_end` bleibt das Ende der erkannten Aktion; nur `clip_end` darf über Recovery-Boundary-Evidenz verlängert werden.
+- Erweiterte numerische Diagnostik (`recovery_tail_*`) und merge-stabile Recovery-Window-Metadaten für das videofreie Debug-Paket.
+
 ## Version 0.13.11
 
 - Verbesserte Erkennung kontrollierter Ballfreigaben (Abschläge, Abwürfe, Pässe) nach Ballbesitz.

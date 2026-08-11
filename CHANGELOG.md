@@ -1,3 +1,13 @@
+## 0.13.13
+- Implementierung eines kontrollierten `recovery_window_tail`-Fallbacks für akzeptierte Recovery-Aktionen mit zu kurzem Timeout-Ende.
+- Prioritätskette für Clip-Enden explizit: `controlled_release` → `recovery_distribution_continuation` → `recovery_window_tail` → `timeout`.
+- Nutzung vorhandener Recovery-Boundary-Evidenz (`recovery_window_start`/`recovery_window_end`) statt weiterer Candidate-Absorptionslogik als Hauptlösung.
+- Begrenzte Verlängerung über `recovery_window_tail_max_extension_seconds` (konservativ, mit Clamping/Blockierung).
+- `action_end` bleibt diagnostisch getrennt vom erweiterten `clip_end`; neues `clip_end_reason` ist `recovery_window_tail`.
+- Erweiterte numerische Diagnostik (`recovery_tail_*`) und zusätzliche Nachvollziehbarkeit im Candidate-Lifecycle/Debug-Paket.
+- Neue synthetische Regressionstests für Recovery-Tail-Fallback; bestehende Regressionen aus 0.13.10/0.13.11/0.13.12 bleiben unverändert erfolgreich.
+- Debug-Paketversion auf `goalkeeper_highlights_debug_v0.13.13.zip` angehoben.
+
 ## 0.13.12
 - Implementierung der Candidate-basierten Recovery-Distribution-Fortsetzung zur Behebung zu kurzer Clips (z.B. Clip 5).
 - Ermöglicht die Clip-Verlängerung auch bei unzuverlässig erkannter `possession_duration`, sofern ein nachfolgendes Distribution-Event vorliegt.

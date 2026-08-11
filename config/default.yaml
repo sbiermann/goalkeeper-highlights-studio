@@ -134,6 +134,12 @@ clips:
   recovery_distribution_safety_tail_seconds: 4.0
   recovery_distribution_max_gap_seconds: 8.0
   recovery_distribution_allow_rejected_candidate: true
+  recovery_window_tail_fallback_enabled: true
+  recovery_window_tail_max_extension_seconds: 8.0
+  recovery_window_tail_safety_seconds: 0.0
+  recovery_window_tail_require_timeout: true
+  recovery_window_tail_source_search_seconds: 20.0
+  recovery_window_tail_restart_guard_seconds: 1.2
   # A file change is treated as an edit/half-time boundary unless explicitly
   # enabled. This prevents the last second of one half leaking into the next.
   allow_cross_source_clips: false

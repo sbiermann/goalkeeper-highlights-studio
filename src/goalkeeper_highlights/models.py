@@ -81,6 +81,9 @@ class Candidate:
     keeper_x_normalized: float = 0.0
     keeper_y_normalized: float = 0.0
     recovery_candidate: bool = False
+    recovery_window_start: float = 0.0
+    recovery_window_end: float = 0.0
+    recovery_tail_reason: str = ""
     routing_score: float = 0.0
     routing_category: str = "MEDIUM"
     routing_reason: str = ""

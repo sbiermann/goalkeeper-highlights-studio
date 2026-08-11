@@ -161,6 +161,131 @@ def find_recovery_distribution_continuation(candidate: Candidate, items: list[Ca
             
     return res
 
+
+def apply_recovery_window_tail_fallback(
+    candidate: Candidate,
+    items: list[Candidate],
+    clips_cfg: dict[str, Any],
+    duration: float,
+    max_duration: float,
+    normal_clip_end: float,
+    controlled_release_detected: bool,
+    recovery_distribution_detected: bool,
+) -> dict[str, Any]:
+    """Conservative fallback: extend clip_end to existing recovery window boundary evidence."""
+    res: dict[str, Any] = {
+        "recovery_tail_checked": 1.0,
+        "recovery_tail_available": 0.0,
+        "recovery_tail_source_count": 0.0,
+        "recovery_tail_original_clip_end": normal_clip_end,
+        "recovery_tail_window_end": 0.0,
+        "recovery_tail_extension_seconds": 0.0,
+        "recovery_tail_max_extension_seconds": float(clips_cfg.get("recovery_window_tail_max_extension_seconds", 8.0)),
+        "recovery_tail_applied": 0.0,
+        "recovery_tail_effective_clip_end": normal_clip_end,
+        "recovery_tail_clamped": 0.0,
+        "recovery_tail_same_keeper": 0.0,
+        "recovery_tail_blocked_by_release": 1.0 if controlled_release_detected else 0.0,
+        "recovery_tail_blocked_by_distribution": 1.0 if recovery_distribution_detected else 0.0,
+        "recovery_tail_blocked_by_restart": 0.0,
+        "recovery_tail_blocked_by_max_duration": 0.0,
+    }
+
+    candidate.recovery_tail_reason = "not_checked"
+    if not bool(clips_cfg.get("recovery_window_tail_fallback_enabled", True)):
+        candidate.recovery_tail_reason = "disabled"
+        return res
+    if not candidate.accepted:
+        candidate.recovery_tail_reason = "candidate_not_accepted"
+        return res
+    if candidate.category not in {"recovery_uncovered_activity", "recovery_keeper_interaction"} and not candidate.recovery_candidate:
+        candidate.recovery_tail_reason = "not_recovery_candidate"
+        return res
+    if controlled_release_detected:
+        candidate.recovery_tail_reason = "blocked_by_controlled_release"
+        return res
+    if recovery_distribution_detected:
+        candidate.recovery_tail_reason = "blocked_by_distribution"
+        return res
+    if bool(clips_cfg.get("recovery_window_tail_require_timeout", True)) and candidate.clip_end_reason not in {"timeout", "observed_action_window", "chained_keeper_phase", ""}:
+        candidate.recovery_tail_reason = "blocked_by_clip_end_reason"
+        return res
+
+    anchor = candidate.action_end or candidate.trigger_time
+    recovery_sources: list[Candidate] = []
+    allowed_ids = {candidate.candidate_id, *candidate.parent_candidate_ids, *candidate.merged_from}
+    for other in items:
+        if other.keeper_label != candidate.keeper_label:
+            continue
+        if not (other.recovery_candidate or other.category == "recovery_uncovered_activity"):
+            continue
+        if other.candidate_id in allowed_ids:
+            recovery_sources.append(other)
+            continue
+        other_start = other.action_start or other.trigger_time
+        gap = abs(other_start - anchor)
+        if gap <= float(clips_cfg.get("recovery_window_tail_source_search_seconds", 20.0)):
+            recovery_sources.append(other)
+
+    if not recovery_sources:
+        candidate.recovery_tail_reason = "no_recovery_source"
+        return res
+
+    res["recovery_tail_source_count"] = float(len(recovery_sources))
+    res["recovery_tail_same_keeper"] = 1.0
+    recovery_end = max(
+        max(src.recovery_window_end, src.end, src.action_end or src.trigger_time)
+        for src in recovery_sources
+    )
+    res["recovery_tail_window_end"] = recovery_end
+
+    if recovery_end <= normal_clip_end:
+        candidate.recovery_tail_reason = "window_not_beyond_normal_end"
+        return res
+
+    res["recovery_tail_available"] = 1.0
+    extension = recovery_end - normal_clip_end
+    res["recovery_tail_extension_seconds"] = extension
+    max_extension = float(clips_cfg.get("recovery_window_tail_max_extension_seconds", 8.0))
+    if extension > max_extension:
+        recovery_end = normal_clip_end + max_extension
+        res["recovery_tail_clamped"] = 1.0
+
+    restart_window = float(clips_cfg.get("recovery_window_tail_restart_guard_seconds", 1.2))
+    for other in items:
+        if other.candidate_id == candidate.candidate_id or other.keeper_label == candidate.keeper_label:
+            continue
+        other_start = other.action_start or other.trigger_time
+        if normal_clip_end < other_start <= recovery_end + restart_window and other.accepted:
+            res["recovery_tail_blocked_by_restart"] = 1.0
+            candidate.recovery_tail_reason = "blocked_by_other_keeper_activity"
+            return res
+
+    effective_end = min(duration, recovery_end + float(clips_cfg.get("recovery_window_tail_safety_seconds", 0.0)))
+    if effective_end - candidate.start > max_duration:
+        effective_end = candidate.start + max_duration
+        res["recovery_tail_blocked_by_max_duration"] = 1.0
+        res["recovery_tail_clamped"] = 1.0
+    if effective_end <= normal_clip_end:
+        candidate.recovery_tail_reason = "blocked_by_max_duration"
+        return res
+
+    candidate.end = effective_end
+    candidate.clip_end_reason = "recovery_window_tail"
+    candidate.recovery_window_end = max(candidate.recovery_window_end, recovery_end)
+    candidate.recovery_tail_reason = "applied"
+    candidate.lifecycle_events.append({
+        "stage": "clip_planning",
+        "event": "recovery_window_tail",
+        "source_count": len(recovery_sources),
+        "original_clip_end": normal_clip_end,
+        "recovery_window_end": recovery_end,
+        "effective_clip_end": effective_end,
+    })
+    res["recovery_tail_applied"] = 1.0
+    res["recovery_tail_effective_clip_end"] = effective_end
+    return res
+
 PERSON_CLASS = 0
 SPORTS_BALL_CLASS = 32
 ProgressCallback = Callable[[float, str], None]
@@ -240,6 +365,17 @@ def merge_candidates(items: list[Candidate], gap: float, duration: float) -> lis
                 current.possession_bonus = candidate.possession_bonus
                 current.cooldown_penalty = candidate.cooldown_penalty
             
+            current.recovery_candidate = current.recovery_candidate or candidate.recovery_candidate
+            current.recovery_window_start = min(
+                (current.recovery_window_start or current.start),
+                (candidate.recovery_window_start or candidate.start),
+            ) if (current.recovery_window_start or candidate.recovery_window_start) else 0.0
+            current.recovery_window_end = max(
+                current.recovery_window_end,
+                candidate.recovery_window_end,
+                current.end,
+                candidate.end,
+            ) if (current.recovery_candidate or candidate.recovery_candidate) else current.recovery_window_end
             current.parent_candidate_ids = list(dict.fromkeys([*current.parent_candidate_ids, current.candidate_id, *candidate.parent_candidate_ids, candidate.candidate_id]))
             current.merged_from.append(candidate.candidate_id)
             current.merged_reason = "same_keeper_possession_flow" if has_possession_flow else "same_keeper_within_merge_window"
@@ -519,7 +655,8 @@ def recover_uncovered_activity_windows(store, existing: list[Candidate], duratio
                              "diagnostic_keeper_motion": motion, "diagnostic_min_distance": distance,
                              "diagnostic_window_count": len(group)},
             action_start=start_t, action_end=end_t, clip_boundary_reason="uncovered_activity_recovery",
-            recovery_candidate=True, candidate_id=f"diagnostic-recovery-{index:04d}",
+            recovery_candidate=True, recovery_window_start=start_t, recovery_window_end=end_t,
+            candidate_id=f"diagnostic-recovery-{index:04d}",
             lifecycle_stage="recovered", lifecycle_reason="uncovered_suspicious_window",
         )
         recovered.append(candidate)
@@ -654,6 +791,10 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         
         candidate.start = max(0.0, action_start - before)
         candidate.end = min(duration, action_end + after)
+        if candidate.recovery_candidate or candidate.category == "recovery_uncovered_activity":
+            if candidate.recovery_window_start <= 0.0:
+                candidate.recovery_window_start = action_start
+            candidate.recovery_window_end = max(candidate.recovery_window_end, action_end, candidate.end)
         candidate.clip_boundary_reason = "observed_action_window"
         
         # Default end reason
@@ -731,6 +872,18 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             })
             
         candidate.score_breakdown.update(recovery_dist_res)
+
+        recovery_tail_res = apply_recovery_window_tail_fallback(
+            candidate,
+            ordered,
+            clips_cfg,
+            duration,
+            max_duration,
+            candidate.end,
+            controlled_release_detected=release_res.get("controlled_release_detected", 0.0) > 0,
+            recovery_distribution_detected=recovery_dist_res.get("recovery_distribution_detected", 0.0) > 0,
+        )
+        candidate.score_breakdown.update(recovery_tail_res)
 
         if planned and planned[-1].accepted:
             previous = planned[-1]
