@@ -697,6 +697,318 @@ def rescue_classic_keeper_actions(items: list[Candidate], clips_cfg: dict[str, A
             candidate.description = (candidate.description + " Klassische Torwartaktion durch bestätigten dynamischen Kontakt gerettet.").strip()
     return items
 
+
+def _clip_end_reason_priority(reason: str) -> int:
+    priorities = {
+        "controlled_release": 4,
+        "recovery_distribution_continuation": 3,
+        "recovery_window_tail": 2,
+        "timeout": 1,
+    }
+    return priorities.get(reason or "", 0)
+
+
+def _merge_unique_ids(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+    for value in values:
+        if not value:
+            continue
+        if value in seen:
+            continue
+        seen.add(value)
+        merged.append(value)
+    return merged
+
+
+def _candidate_action_bounds(candidate: Candidate) -> tuple[float, float]:
+    action_start = candidate.action_start or candidate.trigger_time
+    action_end = candidate.action_end or candidate.trigger_time
+    return action_start, max(action_start, action_end)
+
+
+def _has_independent_restart_between(previous: Candidate, current: Candidate) -> bool:
+    restart_categories = {"distribution", "keeper_clearance"}
+    previous_cat = previous.category
+    current_cat = current.category
+    if current_cat in restart_categories and previous_cat not in {"catch_or_control", "cross_claim_or_high_catch", "recovery_uncovered_activity"}:
+        return True
+    if previous_cat in restart_categories and current_cat in restart_categories:
+        return True
+    return False
+
+
+def trim_context_to_duration_limit(
+    union_start: float,
+    union_end: float,
+    action_start: float,
+    action_end: float,
+    duration_limit: float,
+    min_pre_roll: float,
+    min_post_roll: float,
+) -> tuple[float, float, float, float, float, float, float, bool, bool]:
+    """Trim only outer context while preserving full action span.
+
+    Returns:
+        (trimmed_start, trimmed_end, action_duration, original_pre_roll,
+         original_post_roll, effective_pre_roll, effective_post_roll,
+         context_trimmed, can_fit)
+    """
+    bounded_action_end = max(action_start, action_end)
+    action_duration = max(0.0, bounded_action_end - action_start)
+    original_pre_roll = max(0.0, action_start - union_start)
+    original_post_roll = max(0.0, union_end - bounded_action_end)
+    union_duration = max(0.0, union_end - union_start)
+
+    if union_duration <= duration_limit:
+        return (
+            union_start,
+            union_end,
+            action_duration,
+            original_pre_roll,
+            original_post_roll,
+            original_pre_roll,
+            original_post_roll,
+            False,
+            True,
+        )
+
+    min_context_duration = action_duration + min_pre_roll + min_post_roll
+    if min_context_duration > duration_limit:
+        return (
+            union_start,
+            union_end,
+            action_duration,
+            original_pre_roll,
+            original_post_roll,
+            original_pre_roll,
+            original_post_roll,
+            False,
+            False,
+        )
+
+    effective_pre_roll = original_pre_roll
+    effective_post_roll = original_post_roll
+    over_limit = union_duration - duration_limit
+
+    reducible_pre = max(0.0, effective_pre_roll - min_pre_roll)
+    reduce_pre = min(reducible_pre, over_limit)
+    effective_pre_roll -= reduce_pre
+    over_limit -= reduce_pre
+
+    reducible_post = max(0.0, effective_post_roll - min_post_roll)
+    reduce_post = min(reducible_post, over_limit)
+    effective_post_roll -= reduce_post
+    over_limit -= reduce_post
+
+    if over_limit > 1e-6:
+        return (
+            union_start,
+            union_end,
+            action_duration,
+            original_pre_roll,
+            original_post_roll,
+            effective_pre_roll,
+            effective_post_roll,
+            False,
+            False,
+        )
+
+    trimmed_start = action_start - effective_pre_roll
+    trimmed_end = bounded_action_end + effective_post_roll
+    context_trimmed = (effective_pre_roll < original_pre_roll) or (effective_post_roll < original_post_roll)
+
+    return (
+        trimmed_start,
+        trimmed_end,
+        action_duration,
+        original_pre_roll,
+        original_post_roll,
+        effective_pre_roll,
+        effective_post_roll,
+        context_trimmed,
+        True,
+    )
+
+
+def merge_overlapping_final_clips(items: list[Candidate], duration: float, clips_cfg: dict[str, Any]) -> list[Candidate]:
+    if not items:
+        return []
+    if not bool(clips_cfg.get("final_overlap_merge_enabled", True)):
+        return items
+
+    min_ratio = max(0.0, min(1.0, float(clips_cfg.get("final_overlap_merge_min_ratio", 0.60))))
+    max_gap = max(0.0, float(clips_cfg.get("final_overlap_merge_max_gap_seconds", 1.0)))
+    require_same_keeper = bool(clips_cfg.get("final_overlap_merge_require_same_keeper", True))
+    max_duration = max(1.0, float(clips_cfg.get("max_dynamic_clip_seconds", 45.0)))
+    duration_tolerance = float(clips_cfg.get("phase_merge_duration_tolerance", 0.08))
+    duration_limit = max_duration * (1.0 + duration_tolerance)
+    min_pre_roll = max(0.0, float(clips_cfg.get("phase_merge_min_pre_roll_seconds", 2.0)))
+    min_post_roll = max(0.0, float(clips_cfg.get("phase_merge_min_post_roll_seconds", 2.0)))
+
+    ordered = sorted(items, key=lambda c: (c.start, c.end, c.trigger_time))
+    merged: list[Candidate] = []
+
+    for candidate in ordered:
+        if candidate.score_breakdown is None:
+            candidate.score_breakdown = {}
+
+        if not merged:
+            merged.append(candidate)
+            continue
+
+        previous = merged[-1]
+        if previous.score_breakdown is None:
+            previous.score_breakdown = {}
+
+        if not previous.accepted or not candidate.accepted:
+            merged.append(candidate)
+            continue
+
+        previous_duration = max(0.001, previous.end - previous.start)
+        current_duration = max(0.001, candidate.end - candidate.start)
+        overlap_seconds = max(0.0, min(previous.end, candidate.end) - max(previous.start, candidate.start))
+        shorter_duration = min(previous_duration, current_duration)
+        overlap_shorter_ratio = overlap_seconds / shorter_duration if shorter_duration > 0 else 0.0
+        union_start = min(previous.start, candidate.start)
+        union_end = max(previous.end, candidate.end)
+        union_duration = max(0.001, union_end - union_start)
+        overlap_iou = overlap_seconds / union_duration if union_duration > 0 else 0.0
+        gap = candidate.start - previous.end
+        same_keeper = previous.keeper_label == candidate.keeper_label
+        restart_detected = _has_independent_restart_between(previous, candidate)
+        prev_action_start, prev_action_end = _candidate_action_bounds(previous)
+        cand_action_start, cand_action_end = _candidate_action_bounds(candidate)
+        action_span_start = min(prev_action_start, cand_action_start)
+        action_span_end = max(prev_action_end, cand_action_end)
+        (
+            trimmed_start,
+            trimmed_end,
+            action_duration,
+            original_pre_roll,
+            original_post_roll,
+            effective_pre_roll,
+            effective_post_roll,
+            context_trimmed,
+            can_fit_with_trimming,
+        ) = trim_context_to_duration_limit(
+            union_start,
+            union_end,
+            action_span_start,
+            action_span_end,
+            duration_limit,
+            min_pre_roll,
+            min_post_roll,
+        )
+        trimmed_duration = max(0.001, trimmed_end - trimmed_start)
+
+        candidate.score_breakdown.update({
+            "final_overlap_checked": 1.0,
+            "final_overlap_seconds": overlap_seconds,
+            "final_overlap_shorter_ratio": overlap_shorter_ratio,
+            "final_overlap_iou": overlap_iou,
+            "final_overlap_same_keeper": 1.0 if same_keeper else 0.0,
+            "final_overlap_restart_detected": 1.0 if restart_detected else 0.0,
+            "final_overlap_gap": gap,
+            "final_overlap_original_union_duration": union_duration,
+            "final_overlap_action_duration": action_duration,
+            "final_overlap_original_pre_roll": original_pre_roll,
+            "final_overlap_original_post_roll": original_post_roll,
+            "final_overlap_effective_pre_roll": effective_pre_roll,
+            "final_overlap_effective_post_roll": effective_post_roll,
+            "final_overlap_trimmed_duration": trimmed_duration,
+            "final_overlap_context_trimmed": 1.0 if context_trimmed else 0.0,
+            "final_overlap_union_duration": union_duration,
+            "final_overlap_duration_limit": duration_limit,
+            "final_overlap_merge_applied": 0.0,
+        })
+
+        if require_same_keeper and not same_keeper:
+            merged.append(candidate)
+            continue
+        if restart_detected:
+            merged.append(candidate)
+            continue
+        if not can_fit_with_trimming:
+            merged.append(candidate)
+            continue
+
+        strong_overlap = overlap_seconds > 0.0 and overlap_shorter_ratio >= min_ratio
+        small_gap_continuation = overlap_seconds <= 0.0 and gap <= max_gap
+        if not strong_overlap and not small_gap_continuation:
+            merged.append(candidate)
+            continue
+
+        previous_end_before_merge = previous.end
+        previous.start = max(0.0, trimmed_start)
+        previous.end = min(duration, trimmed_end)
+        previous.action_start = action_span_start
+        previous.action_end = action_span_end
+        previous.recovery_window_start = min(
+            (x for x in [previous.recovery_window_start, candidate.recovery_window_start] if x > 0.0),
+            default=0.0,
+        )
+        previous.recovery_window_end = max(previous.recovery_window_end, candidate.recovery_window_end)
+        previous.contact_frames += candidate.contact_frames
+        previous.ball_confidence = max(previous.ball_confidence, candidate.ball_confidence)
+        previous.identity_confidence = max(previous.identity_confidence, candidate.identity_confidence)
+        previous.clip_boundary_reason = "final_overlap_merged"
+        previous.phase_merge_reason = previous.phase_merge_reason or "same_keeper_related_phase"
+        previous.merged_reason = "same_keeper_high_overlap"
+
+        primary_reason = previous.clip_end_reason
+        secondary_reason = candidate.clip_end_reason
+        primary_priority = _clip_end_reason_priority(primary_reason)
+        secondary_priority = _clip_end_reason_priority(secondary_reason)
+        if secondary_priority > primary_priority:
+            previous.clip_end_reason = secondary_reason
+        elif secondary_priority == primary_priority and candidate.end >= previous_end_before_merge:
+            previous.clip_end_reason = secondary_reason
+
+        previous.merged_from = _merge_unique_ids(
+            previous.merged_from + [candidate.candidate_id] + candidate.merged_from
+        )
+        previous.parent_candidate_ids = _merge_unique_ids(
+            previous.parent_candidate_ids + [candidate.candidate_id] + candidate.parent_candidate_ids
+        )
+        previous.lifecycle_events.append(
+            {
+                "stage": "final_overlap_merge",
+                "reason": "same_keeper_high_overlap",
+                "merged_candidate_id": candidate.candidate_id,
+            }
+        )
+        previous.lifecycle_reason = "same_keeper_high_overlap"
+
+        previous.score_breakdown.update(
+            {
+                "final_overlap_checked": 1.0,
+                "final_overlap_seconds": overlap_seconds,
+                "final_overlap_shorter_ratio": overlap_shorter_ratio,
+                "final_overlap_iou": overlap_iou,
+                "final_overlap_same_keeper": 1.0 if same_keeper else 0.0,
+                "final_overlap_restart_detected": 1.0 if restart_detected else 0.0,
+                "final_overlap_gap": gap,
+                "final_overlap_original_union_duration": union_duration,
+                "final_overlap_action_duration": action_duration,
+                "final_overlap_original_pre_roll": original_pre_roll,
+                "final_overlap_original_post_roll": original_post_roll,
+                "final_overlap_effective_pre_roll": effective_pre_roll,
+                "final_overlap_effective_post_roll": effective_post_roll,
+                "final_overlap_trimmed_duration": trimmed_duration,
+                "final_overlap_context_trimmed": 1.0 if context_trimmed else 0.0,
+                "final_overlap_union_duration": trimmed_duration,
+                "final_overlap_duration_limit": duration_limit,
+                "final_overlap_merge_applied": 1.0,
+            }
+        )
+
+        candidate.continuation_absorbed = True
+        candidate.absorbed_into_candidate_id = previous.candidate_id
+        candidate.continuation_absorb_reason = "final_overlap_merge_absorbed"
+
+    return merged
+
 def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips_cfg: dict[str, Any]) -> list[Candidate]:
     """Plan clips around observed action boundaries instead of fixed trigger windows.
 
@@ -1057,6 +1369,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         if candidate.accepted or not candidate.continuation_absorbed:
             final_clips.append(candidate)
         
+    final_clips = merge_overlapping_final_clips(final_clips, duration, clips_cfg)
     return final_clips
 
 

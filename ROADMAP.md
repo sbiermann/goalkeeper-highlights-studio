@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.10, focused on action merging, dynamic clip endings and false-positive reduction.
+Current stabilization release: 0.13.15, focused on conservative context trimming inside final overlap deduplication.
 
 # Roadmap
 
@@ -8,6 +8,8 @@ Current stabilization release: 0.13.10, focused on action merging, dynamic clip 
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.15 adds conservative context trimming in final overlap dedup when only outer context violates duration limits.
+- Version 0.13.14 introduced a final overlap dedup pass to consolidate near-identical final highlight windows.
 - Version 0.13.6 established complete diagnostics. 
 - Version 0.13.10 introduced intelligent merging and action-aware clips.
 - Version 0.13.9 improved goalkeeper identity and selection logic.

@@ -133,6 +133,21 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - `action_end` bleibt das Ende der erkannten Aktion; nur `clip_end` darf über Recovery-Boundary-Evidenz verlängert werden.
 - Erweiterte numerische Diagnostik (`recovery_tail_*`) und merge-stabile Recovery-Window-Metadaten für das videofreie Debug-Paket.
 
+## Version 0.13.15
+
+- Finaler Overlap-Dedup erweitert um konservatives Context-Trimming bei zu langer Union durch äußeren Kontext.
+- Vollständiges Action-Fenster bleibt erhalten; reduziert werden nur überschüssige Pre-/Post-Roll-Anteile.
+- Keine pauschale Erhöhung globaler Dauergrenzen; bestehende `max_dynamic_clip_seconds` und Toleranz bleiben gültig.
+- Merge-/Recovery-/Boundary-Metadaten bleiben beim finalen Merge erhalten und diagnostisch nachvollziehbar.
+
+## Version 0.13.14
+
+- Finaler Overlap-Dedup-Pass nach allen Clip-Boundary-Erweiterungen zur Konsolidierung nahezu identischer Highlights derselben Keeper-Phase.
+- Merge nur bei kompatibler Keeper-Identität, starker Überlappung oder sehr kleiner Lücke und ohne unabhängigen Restart.
+- Union-Clip respektiert weiterhin `max_dynamic_clip_seconds` inklusive vorhandener Toleranz; kein aggressives Re-Trimming.
+- Merge-Ancestors (`merged_from`, `parent_candidate_ids`) und Recovery-/Boundary-Diagnostik bleiben erhalten.
+- Absorbierte Kandidaten werden nicht als separater Highlight-Export ausgegeben, bleiben aber diagnostisch nachvollziehbar.
+
 ## Version 0.13.11
 
 - Verbesserte Erkennung kontrollierter Ballfreigaben (Abschläge, Abwürfe, Pässe) nach Ballbesitz.

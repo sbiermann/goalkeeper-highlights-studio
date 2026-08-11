@@ -119,6 +119,10 @@ clips:
   phase_merge_duration_tolerance: 0.08
   phase_merge_min_pre_roll_seconds: 2.0
   phase_merge_min_post_roll_seconds: 2.0
+  final_overlap_merge_enabled: true
+  final_overlap_merge_min_ratio: 0.60
+  final_overlap_merge_max_gap_seconds: 1.0
+  final_overlap_merge_require_same_keeper: true
   final_keeper_contact_tail_seconds: 5.0
   minimum_clip_seconds: 6.0
   max_dynamic_clip_seconds: 45.0

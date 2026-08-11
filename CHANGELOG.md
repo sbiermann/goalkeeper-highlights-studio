@@ -1,3 +1,20 @@
+## 0.13.15
+- Konservatives Context-Trimming im finalen Overlap-Dedup ergänzt, wenn die Union nur wegen äußerem Kontext über dem Dauerlimit liegt.
+- Action-Fenster bleiben beim finalen Merge vollständig erhalten; nur überschüssiger Pre-/Post-Roll wird reduziert.
+- Keine Erhöhung der globalen Clipdauergrenzen; bestehende `max_dynamic_clip_seconds` und Toleranz bleiben maßgeblich.
+- Merge-/Recovery-/Boundary-Metadaten bleiben beim finalen Overlap-Merge erhalten.
+- Numerische Diagnostik für Original-/effektiven Kontext und getrimmte Dauer (`final_overlap_*`) erweitert.
+- Regressionstests für Trimming- und Sicherheitsfälle im finalen Overlap-Dedup ergänzt.
+
+## 0.13.14
+- Finaler Overlap-Dedup-Pass nach allen Clip-Boundary-Erweiterungen eingeführt.
+- Stark überlappende finale Highlights desselben Keepers werden zu einem Clipfenster konsolidiert.
+- Merge-Schutzregeln für Keeper-Identität, Restart-Kontext und maximale Clipdauer ergänzt.
+- Merge-/Recovery-/Boundary-Metadaten bleiben beim finalen Zusammenführen erhalten und nachvollziehbar.
+- Absorbierte Kandidaten werden nicht doppelt exportiert, bleiben aber diagnostisch sichtbar.
+- Neue numerische Diagnostikfelder für finalen Overlap-Check (`final_overlap_*`) ergänzt.
+- Synthetische Regressionstests für finales Overlap-Dedup und Sicherheitsfälle ergänzt.
+
 ## 0.13.13
 - Implementierung eines kontrollierten `recovery_window_tail`-Fallbacks für akzeptierte Recovery-Aktionen mit zu kurzem Timeout-Ende.
 - Prioritätskette für Clip-Enden explizit: `controlled_release` → `recovery_distribution_continuation` → `recovery_window_tail` → `timeout`.

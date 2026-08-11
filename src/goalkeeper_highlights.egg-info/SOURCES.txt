@@ -52,5 +52,6 @@ tests/test_v0_13_11_release.py
 tests/test_v0_13_11_reporting.py
 tests/test_v0_13_12_distribution.py
 tests/test_v0_13_13_recovery_tail.py
+tests/test_v0_13_14_final_overlap_dedup.py
 tests/test_video.py
 tests/test_virtual_timeline.py
