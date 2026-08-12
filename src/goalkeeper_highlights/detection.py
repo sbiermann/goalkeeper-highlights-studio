@@ -245,8 +245,8 @@ def apply_dynamic_catch_control_idle_tail(
             clips_cfg.get("catch_control_idle_tail_seconds", 3.0),
         )
     )
-    idle_tail_medium = float(clips_cfg.get("catch_control_idle_tail_medium_seconds", 5.0))
-    idle_tail_high = float(clips_cfg.get("catch_control_idle_tail_high_seconds", 6.0))
+    idle_tail_medium = float(clips_cfg.get("catch_control_idle_tail_medium_seconds", 6.0))
+    idle_tail_high = float(clips_cfg.get("catch_control_idle_tail_high_seconds", 7.0))
     medium_min_contact = int(clips_cfg.get("catch_control_medium_min_contact_frames", 4))
     medium_min_possession = float(clips_cfg.get("catch_control_medium_min_possession_seconds", 0.25))
     high_min_contact = int(clips_cfg.get("catch_control_high_min_contact_frames", 10))

@@ -98,6 +98,13 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Never hard-code match timestamps or filenames.
 - Preserve all candidate lifecycle stages in the video-free debug package.
 
+## Version 0.13.18
+
+- Feintuning des adaptiven `catch_or_control`-Idle-Tails: LOW bleibt 3s, MEDIUM steigt auf 6s, HIGH auf 7s.
+- LOW/MEDIUM/HIGH-Klassifizierungslogik bleibt unverändert; keine neuen Heuristiken.
+- `catch_control_max_post_roll_seconds` bleibt unverändert bei 11s.
+- Boundary-Priorität bleibt unverändert: `controlled_release` → `recovery_distribution_continuation` → `recovery_window_tail` → dynamic idle tail → `timeout`.
+- Regressionen der bestehenden Boundary-Mechanismen bleiben geschützt.
 
 ## v0.13.8 invariants
 

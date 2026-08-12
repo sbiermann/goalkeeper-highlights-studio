@@ -1,3 +1,11 @@
+## 0.13.18
+- Feintuning des adaptiven `catch_or_control`-Idle-Tails ohne Änderung der Klassifizierungslogik.
+- `catch_control_idle_tail_medium_seconds` von 5.0 auf 6.0 erhöht.
+- `catch_control_idle_tail_high_seconds` von 6.0 auf 7.0 erhöht.
+- `catch_control_idle_tail_low_seconds` bleibt unverändert bei 3.0.
+- Keine Änderungen an Boundary-Prioritäten, Recovery-Continuation-Validation oder anderen bestehenden Mechanismen.
+- Bestehende Regressionen der Boundary-Mechanismen bleiben geschützt.
+
 ## 0.13.17
 - Adaptiver `catch_or_control`-Idle-Tail ersetzt den festen 3s-Tail durch LOW/MEDIUM/HIGH-Klassifizierung auf Basis mehrerer Signale.
 - Einstufung kombiniert u.a. `contact_frames`, `possession_duration` und ergänzend `interaction_score`; Keeper-Motion allein bleibt schwache Evidenz (LOW).

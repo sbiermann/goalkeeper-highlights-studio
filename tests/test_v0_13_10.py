@@ -4,16 +4,16 @@ from goalkeeper_highlights import __version__
 import subprocess
 import sys
 
-def test_v0_13_17_version_consistency():
-    # Central source must be 0.13.17
-    assert __version__ == "0.13.17"
+def test_v0_13_18_version_consistency():
+    # Central source must be 0.13.18
+    assert __version__ == "0.13.18"
 
-def test_v0_13_17_cli_version():
-    # CLI must report 0.13.17
+def test_v0_13_18_cli_version():
+    # CLI must report 0.13.18
     result = subprocess.run([sys.executable, "-m", "goalkeeper_highlights.cli", "--version"],
                             capture_output=True, text=True, check=True)
-    # Output is usually "goalkeeper-highlights 0.13.17" or similar depending on prog name
-    assert "0.13.17" in result.stdout
+    # Output is usually "goalkeeper-highlights 0.13.18" or similar depending on prog name
+    assert "0.13.18" in result.stdout
 
 def test_v0_13_10_merge_with_gap():
     # Candidates with 2.2s gap should NOT be merged in v0.13.10 if no possession flow

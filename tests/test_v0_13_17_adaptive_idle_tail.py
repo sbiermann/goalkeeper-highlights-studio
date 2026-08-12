@@ -34,8 +34,8 @@ def _cfg() -> dict:
         "recovery_continuation_min_contact_frames": 2,
         "catch_control_dynamic_post_roll_enabled": True,
         "catch_control_idle_tail_low_seconds": 3.0,
-        "catch_control_idle_tail_medium_seconds": 5.0,
-        "catch_control_idle_tail_high_seconds": 6.0,
+        "catch_control_idle_tail_medium_seconds": 6.0,
+        "catch_control_idle_tail_high_seconds": 7.0,
         "catch_control_medium_min_contact_frames": 4,
         "catch_control_medium_min_possession_seconds": 0.25,
         "catch_control_high_min_contact_frames": 10,
@@ -90,7 +90,7 @@ def test_medium_realistic_clip9_style_case_is_not_low():
     diag = apply_dynamic_catch_control_idle_tail(c, [c], _cfg(), 2000.0)
     assert diag["catch_control_idle_level"] >= 2.0
     assert diag["catch_control_selected_idle_tail"] > 3.0
-    assert c.end == 1172.68
+    assert c.end == 1173.68
     assert c.end < 1178.68
 
 
@@ -113,7 +113,7 @@ def test_high_interaction_uses_high_tail_and_respects_max_post_roll():
     )
     diag = apply_dynamic_catch_control_idle_tail(c, [c], _cfg(), 2000.0)
     assert diag["catch_control_idle_level"] == 3.0
-    assert diag["catch_control_selected_idle_tail"] == 6.0
+    assert diag["catch_control_selected_idle_tail"] == 7.0
     assert c.end <= 36.0
 
 
@@ -136,7 +136,7 @@ def test_low_interaction_score_with_clear_control_is_medium():
     )
     diag = apply_dynamic_catch_control_idle_tail(c, [c], _cfg(), 2000.0)
     assert diag["catch_control_idle_level"] == 2.0
-    assert c.end == 50.0
+    assert c.end == 51.0
 
 
 def test_high_keeper_motion_without_ball_evidence_stays_low():
