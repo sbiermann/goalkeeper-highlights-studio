@@ -231,7 +231,7 @@ def apply_dynamic_catch_control_idle_tail(
     clips_cfg: dict[str, Any],
     duration: float,
 ) -> dict[str, float]:
-    """Shorten catch/control post-roll conservatively when no further relevant activity follows."""
+    """Shorten catch/control post-roll conservatively with adaptive idle levels."""
     action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
     max_post_roll = float(
         clips_cfg.get(
@@ -239,11 +239,55 @@ def apply_dynamic_catch_control_idle_tail(
             clips_cfg.get("category_post_roll_seconds", {}).get("catch_or_control", 11.0),
         )
     )
-    idle_tail = float(clips_cfg.get("catch_control_idle_tail_seconds", 3.0))
+    idle_tail_low = float(
+        clips_cfg.get(
+            "catch_control_idle_tail_low_seconds",
+            clips_cfg.get("catch_control_idle_tail_seconds", 3.0),
+        )
+    )
+    idle_tail_medium = float(clips_cfg.get("catch_control_idle_tail_medium_seconds", 5.0))
+    idle_tail_high = float(clips_cfg.get("catch_control_idle_tail_high_seconds", 6.0))
+    medium_min_contact = int(clips_cfg.get("catch_control_medium_min_contact_frames", 4))
+    medium_min_possession = float(clips_cfg.get("catch_control_medium_min_possession_seconds", 0.25))
+    high_min_contact = int(clips_cfg.get("catch_control_high_min_contact_frames", 10))
+    high_min_possession = float(clips_cfg.get("catch_control_high_min_possession_seconds", 1.0))
+    high_min_interaction = float(clips_cfg.get("catch_control_high_min_interaction_score", 0.45))
     dynamic_enabled = bool(clips_cfg.get("catch_control_dynamic_post_roll_enabled", True))
+
+    contact_frames = max(0, int(candidate.contact_frames))
+    possession_duration = max(0.0, float(candidate.possession_duration))
+    interaction_score = max(0.0, float(candidate.interaction_score))
+
+    medium_contact_match = 1.0 if contact_frames >= medium_min_contact else 0.0
+    medium_possession_match = 1.0 if possession_duration >= medium_min_possession else 0.0
+    high_contact_match = 1.0 if contact_frames >= high_min_contact else 0.0
+    high_possession_match = 1.0 if possession_duration >= high_min_possession else 0.0
+
+    idle_level = 1.0
+    idle_tail = idle_tail_low
+    if (high_contact_match > 0 and high_possession_match > 0) or (
+        high_contact_match > 0 and interaction_score >= high_min_interaction
+    ):
+        idle_level = 3.0
+        idle_tail = idle_tail_high
+    elif medium_contact_match > 0 and medium_possession_match > 0:
+        idle_level = 2.0
+        idle_tail = idle_tail_medium
 
     res = {
         "catch_control_idle_checked": 1.0,
+        "catch_control_contact_frames": float(contact_frames),
+        "catch_control_possession_duration": possession_duration,
+        "catch_control_interaction_score": interaction_score,
+        "catch_control_idle_level": idle_level,
+        "catch_control_medium_contact_match": medium_contact_match,
+        "catch_control_medium_possession_match": medium_possession_match,
+        "catch_control_high_contact_match": high_contact_match,
+        "catch_control_high_possession_match": high_possession_match,
+        "catch_control_idle_tail_low": idle_tail_low,
+        "catch_control_idle_tail_medium": idle_tail_medium,
+        "catch_control_idle_tail_high": idle_tail_high,
+        "catch_control_selected_idle_tail": idle_tail,
         "catch_control_last_activity_time": action_end,
         "catch_control_idle_seconds": 0.0,
         "catch_control_dynamic_post_roll_applied": 0.0,

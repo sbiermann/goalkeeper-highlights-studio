@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.16, focused on stricter recovery continuation validation and dynamic post-roll shortening for idle catch/control tails.
+Current stabilization release: 0.13.17, focused on adaptive catch/control idle tails with LOW/MEDIUM/HIGH interaction levels while preserving boundary priorities.
 
 # Roadmap
 
@@ -8,6 +8,7 @@ Current stabilization release: 0.13.16, focused on stricter recovery continuatio
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.17 replaces the fixed 3s catch/control idle tail with adaptive LOW/MEDIUM/HIGH classification based on multi-signal evidence.
 - Version 0.13.16 tightens weak recovery continuation absorption and makes catch/control post-roll dynamically idle-aware (11s stays a maximum).
 - Version 0.13.15 adds conservative context trimming in final overlap dedup when only outer context violates duration limits.
 - Version 0.13.14 introduced a final overlap dedup pass to consolidate near-identical final highlight windows.

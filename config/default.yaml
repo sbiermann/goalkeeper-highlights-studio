@@ -151,7 +151,14 @@ clips:
   recovery_window_tail_source_search_seconds: 20.0
   recovery_window_tail_restart_guard_seconds: 1.2
   catch_control_dynamic_post_roll_enabled: true
-  catch_control_idle_tail_seconds: 3.0
+  catch_control_idle_tail_low_seconds: 3.0
+  catch_control_idle_tail_medium_seconds: 5.0
+  catch_control_idle_tail_high_seconds: 6.0
+  catch_control_medium_min_contact_frames: 4
+  catch_control_medium_min_possession_seconds: 0.25
+  catch_control_high_min_contact_frames: 10
+  catch_control_high_min_possession_seconds: 1.0
+  catch_control_high_min_interaction_score: 0.45
   catch_control_max_post_roll_seconds: 11.0
   # A file change is treated as an edit/half-time boundary unless explicitly
   # enabled. This prevents the last second of one half leaking into the next.

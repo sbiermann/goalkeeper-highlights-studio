@@ -1,3 +1,12 @@
+## 0.13.17
+- Adaptiver `catch_or_control`-Idle-Tail ersetzt den festen 3s-Tail durch LOW/MEDIUM/HIGH-Klassifizierung auf Basis mehrerer Signale.
+- Einstufung kombiniert u.a. `contact_frames`, `possession_duration` und ergänzend `interaction_score`; Keeper-Motion allein bleibt schwache Evidenz (LOW).
+- Boundary-Prioritäten bleiben unverändert: `controlled_release` → `recovery_distribution_continuation` → `recovery_window_tail` → `dynamic_idle_tail` → `timeout`.
+- Dynamisches Clipende bleibt konservativ begrenzt über `catch_control_max_post_roll_seconds`, globale Dauergrenzen und ursprüngliches geplantes Clipende.
+- Neue numerische Diagnostikfelder für Idle-Level, Schwellentreffer und gewählten Tail (`catch_control_idle_level`, `catch_control_*_match`, `catch_control_selected_idle_tail` etc.).
+- Default-Konfiguration um adaptive Catch/Control-Schwellen und Tail-Stufen erweitert (synchron in beiden Default-YAMLs).
+- Synthetische Regressionstests für LOW/MEDIUM/HIGH, Clip-9-ähnlichen MEDIUM-Fall, Motion-ohne-Ball sowie Prioritäts-/Clamp-Schutz ergänzt.
+
 ## 0.13.16
 - Strengere Recovery-Continuation-Validierung: schwache Recovery-Kandidaten werden nur noch bei belastbarer Keeper-/Ball-Evidenz absorbiert.
 - Keeper-Motion allein verlängert Clips nicht mehr; `interaction_score` und Ball-Dynamik fließen in die Continuation-Entscheidung ein.

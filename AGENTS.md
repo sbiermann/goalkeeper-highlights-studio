@@ -133,6 +133,14 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - `action_end` bleibt das Ende der erkannten Aktion; nur `clip_end` darf über Recovery-Boundary-Evidenz verlängert werden.
 - Erweiterte numerische Diagnostik (`recovery_tail_*`) und merge-stabile Recovery-Window-Metadaten für das videofreie Debug-Paket.
 
+## Version 0.13.17
+
+- Adaptiver `catch_or_control`-Idle-Tail mit LOW/MEDIUM/HIGH-Stufen ersetzt den festen 3s-Tail.
+- Einstufung basiert auf kombinierter Keeper-/Ball-Evidenz (`contact_frames`, `possession_duration`, ergänzend `interaction_score`) statt auf einem Einzelwert.
+- Keeper-Motion allein bleibt unzureichend für MEDIUM/HIGH.
+- Boundary-Priorität bleibt unverändert: `controlled_release` → `recovery_distribution_continuation` → `recovery_window_tail` → dynamic idle tail → `timeout`.
+- Diagnostik erweitert um numerische Idle-Level- und Schwellen-Match-Felder.
+
 ## Version 0.13.16
 
 - Strengere Continuation-Absorption für schwache Recovery-Kandidaten: Keeper-Motion allein genügt nicht.
