@@ -162,6 +162,152 @@ def find_recovery_distribution_continuation(candidate: Candidate, items: list[Ca
     return res
 
 
+def is_valid_recovery_continuation(candidate: Candidate, clips_cfg: dict[str, Any]) -> dict[str, float]:
+    """Validate whether a recovery candidate has sufficient keeper/ball continuation evidence."""
+    min_interaction = float(clips_cfg.get("recovery_continuation_min_interaction_score", 0.30))
+    min_ball_confidence = float(clips_cfg.get("recovery_continuation_min_ball_confidence", 0.25))
+    min_possession = float(clips_cfg.get("recovery_continuation_min_possession_seconds", 0.45))
+    min_dynamic_signal = float(clips_cfg.get("recovery_continuation_min_dynamic_signal", 0.12))
+    min_contact_frames = int(clips_cfg.get("recovery_continuation_min_contact_frames", 2))
+    require_ball_dynamics = bool(clips_cfg.get("recovery_continuation_require_ball_dynamics", True))
+
+    approach = float(candidate.approach_speed)
+    departure = float(candidate.departure_speed)
+    direction = float(candidate.direction_change)
+    contact_frames = int(candidate.contact_frames)
+    possession_duration = float(candidate.possession_duration)
+    interaction_score = float(candidate.interaction_score)
+    ball_confidence = float(candidate.ball_confidence)
+
+    ball_dynamics = max(approach, departure, direction)
+    has_ball_dynamics = ball_dynamics >= min_dynamic_signal
+    has_distribution_signal = (
+        candidate.category in {"distribution", "goalkeeper_distribution", "controlled_release", "kick", "throw", "pass", "clearance"}
+        or departure >= float(clips_cfg.get("controlled_release_minimum_departure_speed", 0.35))
+    )
+
+    weak_signature = (
+        contact_frames <= 1
+        and possession_duration <= 0.0
+        and approach <= 0.0
+        and departure <= 0.0
+        and direction <= 0.0
+        and interaction_score < min_interaction
+        and ball_confidence < min_ball_confidence
+    )
+
+    variant_a = (contact_frames >= min_contact_frames) and (
+        has_ball_dynamics or interaction_score >= min_interaction or ball_confidence >= min_ball_confidence
+    )
+    variant_b = (possession_duration >= min_possession) and (
+        ball_confidence >= min_ball_confidence or has_ball_dynamics or interaction_score >= min_interaction
+    )
+    variant_c = (
+        (approach >= min_dynamic_signal and departure >= min_dynamic_signal) or direction >= min_dynamic_signal
+    ) and (
+        ball_confidence >= min_ball_confidence or interaction_score >= min_interaction
+    )
+    variant_d = has_distribution_signal
+
+    valid = (variant_a or variant_b or variant_c or variant_d) and not weak_signature
+    if require_ball_dynamics and not has_distribution_signal and not variant_b and not has_ball_dynamics:
+        valid = False
+
+    return {
+        "recovery_continuation_checked": 1.0,
+        "recovery_continuation_valid": 1.0 if valid else 0.0,
+        "recovery_continuation_interaction_score": interaction_score,
+        "recovery_continuation_contact_frames": float(contact_frames),
+        "recovery_continuation_possession_duration": possession_duration,
+        "recovery_continuation_ball_dynamics": ball_dynamics,
+        "recovery_continuation_keeper_motion": float(candidate.keeper_motion),
+        "recovery_continuation_blocked_weak_ball_signal": 1.0 if (not valid and weak_signature) else 0.0,
+    }
+
+
+def apply_dynamic_catch_control_idle_tail(
+    candidate: Candidate,
+    items: list[Candidate],
+    clips_cfg: dict[str, Any],
+    duration: float,
+) -> dict[str, float]:
+    """Shorten catch/control post-roll conservatively when no further relevant activity follows."""
+    action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+    max_post_roll = float(
+        clips_cfg.get(
+            "catch_control_max_post_roll_seconds",
+            clips_cfg.get("category_post_roll_seconds", {}).get("catch_or_control", 11.0),
+        )
+    )
+    idle_tail = float(clips_cfg.get("catch_control_idle_tail_seconds", 3.0))
+    dynamic_enabled = bool(clips_cfg.get("catch_control_dynamic_post_roll_enabled", True))
+
+    res = {
+        "catch_control_idle_checked": 1.0,
+        "catch_control_last_activity_time": action_end,
+        "catch_control_idle_seconds": 0.0,
+        "catch_control_dynamic_post_roll_applied": 0.0,
+        "catch_control_original_clip_end": candidate.end,
+        "catch_control_effective_clip_end": candidate.end,
+        "catch_control_max_post_roll": max_post_roll,
+        "catch_control_idle_tail": idle_tail,
+    }
+
+    if not dynamic_enabled or candidate.category != "catch_or_control":
+        return res
+    if candidate.clip_end_reason in {"controlled_release", "recovery_distribution_continuation", "recovery_window_tail"}:
+        return res
+
+    search_end = action_end + max_post_roll
+    min_interaction = float(clips_cfg.get("recovery_continuation_min_interaction_score", 0.30))
+    min_ball_confidence = float(clips_cfg.get("recovery_continuation_min_ball_confidence", 0.25))
+    min_dynamic_signal = float(clips_cfg.get("recovery_continuation_min_dynamic_signal", 0.12))
+
+    last_activity = action_end
+    for other in items:
+        if other.candidate_id == candidate.candidate_id or other.keeper_label != candidate.keeper_label:
+            continue
+        other_start = other.action_start or other.trigger_time
+        if other_start < action_end or other_start > search_end:
+            continue
+
+        dynamic_signal = max(float(other.approach_speed), float(other.departure_speed), float(other.direction_change))
+        has_keeper_ball_interaction = (
+            int(other.contact_frames) >= 2
+            or float(other.possession_duration) >= 0.45
+            or float(other.interaction_score) >= min_interaction
+            or float(other.ball_confidence) >= min_ball_confidence
+            or dynamic_signal >= min_dynamic_signal
+        )
+        same_phase_event = other.accepted and other.category in {
+            "distribution",
+            "goalkeeper_distribution",
+            "keeper_clearance",
+            "catch_or_control",
+            "cross_claim_or_high_catch",
+            "save_or_deflection",
+            "diving_save",
+            "interaction",
+            "recovery_keeper_interaction",
+            "recovery_uncovered_activity",
+        }
+        if has_keeper_ball_interaction or same_phase_event:
+            last_activity = max(last_activity, other.action_end or other.trigger_time)
+
+    max_end = min(duration, action_end + max_post_roll)
+    idle_end = min(max_end, last_activity + idle_tail)
+    effective_end = min(candidate.end, idle_end)
+    if effective_end < candidate.end:
+        candidate.end = max(action_end, effective_end)
+        candidate.clip_end_reason = "dynamic_idle_tail"
+        res["catch_control_dynamic_post_roll_applied"] = 1.0
+
+    res["catch_control_last_activity_time"] = last_activity
+    res["catch_control_idle_seconds"] = max(0.0, candidate.end - last_activity)
+    res["catch_control_effective_clip_end"] = candidate.end
+    return res
+
+
 def apply_recovery_window_tail_fallback(
     candidate: Candidate,
     items: list[Candidate],
@@ -1197,6 +1343,9 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         )
         candidate.score_breakdown.update(recovery_tail_res)
 
+        catch_idle_res = apply_dynamic_catch_control_idle_tail(candidate, ordered, clips_cfg, duration)
+        candidate.score_breakdown.update(catch_idle_res)
+
         if planned and planned[-1].accepted:
             previous = planned[-1]
             # action_start is for current candidate, previous.action_end is for previous
@@ -1231,7 +1380,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                         previous.clip_end_reason = "timeout"
                     
                     # Extension: Check if we can find a release event within the candidate action
-                    if previous.clip_end_reason in {"timeout", "kick", "throw"} and candidate.departure_speed > 0.25 and candidate.clip_end_reason not in {"controlled_release", "recovery_distribution_continuation"}:
+                    if previous.clip_end_reason in {"timeout", "dynamic_idle_tail", "kick", "throw"} and candidate.departure_speed > 0.25 and candidate.clip_end_reason not in {"controlled_release", "recovery_distribution_continuation"}:
                         previous.clip_end_reason = "controlled_release"
                     
                     continue
@@ -1287,6 +1436,11 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
 
             # Check for regular Phase Merge (both accepted) or Continuation Absorption (right is rejected recovery)
             is_continuation_candidate = (not candidate.accepted and candidate.recovery_candidate)
+            continuation_validation = is_valid_recovery_continuation(candidate, clips_cfg)
+            candidate.score_breakdown.update(continuation_validation)
+            if is_continuation_candidate and continuation_validation["recovery_continuation_valid"] <= 0.0:
+                candidate.continuation_absorb_reason = "rejected_recovery_continuation_weak_ball_signal"
+                is_continuation_candidate = False
             
             if previous.accepted and (candidate.accepted or is_continuation_candidate):
                 within_limit = (gap <= phase_gap_limit)
@@ -1295,7 +1449,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                 raw_combined_duration = candidate.end - previous.start
                 limit_with_tolerance = max_duration * (1.0 + duration_tolerance)
                 
-                if same_keeper and within_limit and not is_unrelated_restart and previous.clip_end_reason == "timeout":
+                if same_keeper and within_limit and not is_unrelated_restart and previous.clip_end_reason in {"timeout", "dynamic_idle_tail"}:
                     # Can we fit this into a trimmed window?
                     # We MUST preserve action times:
                     action_span_start = min(previous.action_start or previous.trigger_time, candidate.action_start or candidate.trigger_time)

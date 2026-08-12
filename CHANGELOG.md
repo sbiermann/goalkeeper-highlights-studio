@@ -1,3 +1,11 @@
+## 0.13.16
+- Strengere Recovery-Continuation-Validierung: schwache Recovery-Kandidaten werden nur noch bei belastbarer Keeper-/Ball-Evidenz absorbiert.
+- Keeper-Motion allein verlängert Clips nicht mehr; `interaction_score` und Ball-Dynamik fließen in die Continuation-Entscheidung ein.
+- Dynamischer Post-Roll für `catch_or_control`: 11 Sekunden bleiben Maximalwert, bei ausbleibender Folgeaktivität wird früher beendet.
+- Priorisierung bleibt erhalten: `controlled_release` → `recovery_distribution_continuation` → `recovery_window_tail` → dynamic idle tail → `timeout`.
+- Numerische Diagnostikfelder für Recovery-Continuation und Catch/Control-Idle-Tail ergänzt.
+- Neue synthetische Regressionstests für schwache/starke Recovery-Continuation und dynamische Catch/Control-Tails ergänzt.
+
 ## 0.13.15
 - Konservatives Context-Trimming im finalen Overlap-Dedup ergänzt, wenn die Union nur wegen äußerem Kontext über dem Dauerlimit liegt.
 - Action-Fenster bleiben beim finalen Merge vollständig erhalten; nur überschüssiger Pre-/Post-Roll wird reduziert.
