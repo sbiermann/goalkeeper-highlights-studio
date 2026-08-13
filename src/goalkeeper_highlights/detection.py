@@ -1807,6 +1807,14 @@ class KeeperIdentity:
             return KeeperMatch(best, score, old_track != best.track_id)
         return KeeperMatch(best, score*.9, False)
 
+    def reset_tracking_state_for_new_source(self) -> None:
+        """Reset source-local tracking continuity while keeping semantic identity."""
+        self.track_id = None
+        self.last_box = Box(0.0, 0.0, float(self.width), float(self.height), 1.0, PERSON_CLASS, None)
+        self.pending_track_id = None
+        self.pending_count = 0
+        self.last_switch_timestamp = -999.0
+
 def heuristic_score(distance: float, contact_frames: int, ball_confidence: float, identity_confidence: float, cfg: dict) -> float:
     threshold = max(float(cfg.get("distance_factor", 1.35)), 0.01)
     distance_score = max(0.0, min(1.0, 1.0 - distance / threshold))
@@ -1872,13 +1880,62 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     minimum_identity_confidence = float(keeper_cfg.get("minimum_identity_confidence", 0.45))
     event_cfg = config.get("event_engine", {})
     event_engine = GoalkeeperEventEngine(event_cfg, clips, duration, decoder.width, decoder.height)
+    current_source_index: int | None = None
+    source_stats: dict[int, dict[str, Any]] = {}
+
+    def _source_bucket(decoded_frame) -> dict[str, Any]:
+        index = int(getattr(decoded_frame, "source_index", 0))
+        name = str(getattr(decoded_frame, "source_name", ""))
+        bucket = source_stats.setdefault(index, {
+            "source_index": index,
+            "source_name": name,
+            "source_global_offset": float(decoded_frame.timestamp - getattr(decoded_frame, "source_local_timestamp", decoded_frame.timestamp)),
+            "source_duration": 0.0,
+            "frames_decoded": 0,
+            "frames_sampled": 0,
+            "frames_processed": 0,
+            "keeper_frames": 0,
+            "ball_frames": 0,
+            "raw_candidates_created": 0,
+            "accepted_candidates": 0,
+            "rejected_candidates": 0,
+            "keeper_identity_at_start": "Keeper #1" if identity is not None else "pending",
+            "keeper_identity_at_end": "pending",
+            "source_state_reset_performed": False,
+            "keeper_reidentifications": 0,
+            "decoder_restarts": 0,
+            "ball_track_resets": 0,
+            "keeper_track_resets": 0,
+            "candidate_state_resets": 0,
+        })
+        if not bucket["source_name"] and name:
+            bucket["source_name"] = name
+        return bucket
+
     try:
         for decoded in decoder:
             loop_started = time.perf_counter()
             database_ms = candidate_ms = preview_ms = 0.0
+            source_changed = current_source_index is None or decoded.source_index != current_source_index
+            if source_changed:
+                if current_source_index is not None:
+                    candidates.extend(event_engine.finish(decoded.timestamp))
+                event_engine = GoalkeeperEventEngine(event_cfg, clips, duration, decoder.width, decoder.height)
+                if identity is not None:
+                    identity.reset_tracking_state_for_new_source()
+                last_keeper = None
+                current_source_index = decoded.source_index
+                source_bucket = _source_bucket(decoded)
+                source_bucket["source_state_reset_performed"] = True
+                source_bucket["keeper_track_resets"] += 1
+                source_bucket["ball_track_resets"] += 1
+                source_bucket["candidate_state_resets"] += 1
+            else:
+                source_bucket = _source_bucket(decoded)
+
             result = model.track(
                 source=decoded.image,
-                persist=True,
+                persist=not source_changed,
                 tracker=yolo["tracker"],
                 classes=[PERSON_CLASS, SPORTS_BALL_CLASS],
                 conf=float(yolo["confidence"]),
@@ -1888,9 +1945,15 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 verbose=False,
             )[0]
             processed_frames += 1
+            source_bucket["frames_decoded"] += 1
+            source_bucket["frames_sampled"] += 1
+            source_bucket["frames_processed"] += 1
+            source_bucket["source_duration"] = max(source_bucket["source_duration"], float(decoded.source_local_timestamp))
             boxes = boxes_from_result(result)
             persons = [b for b in boxes if b.class_id == PERSON_CLASS]
             balls = [b for b in boxes if b.class_id == SPORTS_BALL_CLASS and b.confidence >= minimum_ball_confidence]
+            if balls:
+                source_bucket["ball_frames"] += 1
             keeper: Box | None = None
             identity_confidence = 0.0
 
@@ -1900,6 +1963,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                     keeper, identity_confidence = match.box, match.confidence
                     if match.reidentified:
                         reid_count += 1
+                        source_bucket["keeper_reidentifications"] += 1
                         reid_confidences.append(identity_confidence)
                         if reid_verbose:
                             if verbose_console:
@@ -1990,6 +2054,10 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 identity_confidence,
             )
             candidates.extend(emitted)
+            source_bucket["raw_candidates_created"] += len(emitted)
+            if keeper is not None and identity_confidence >= minimum_identity_confidence:
+                source_bucket["keeper_frames"] += 1
+                source_bucket["keeper_identity_at_end"] = "Keeper #1"
             candidate_ms = (time.perf_counter() - candidate_started) * 1000
 
             if store is not None and runtime.get("store_detections", True):
@@ -2039,6 +2107,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
 
     if store is not None:
         store.set_state("decoder_stats", {"read_recoveries": int(getattr(decoder, "read_recoveries", 0))})
+        for item in source_stats.values():
+            item["decoder_restarts"] = int(getattr(decoder, "read_recoveries", 0))
 
     if reid_confidences:
         bootstrap_result["reidentification_count"] = reid_count
@@ -2046,6 +2116,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
         bootstrap_result["median_tracking_confidence"] = float(np.median(reid_confidences))
     if store is not None:
         store.set_state("keeper_detection", bootstrap_result)
+        ordered_source_stats = [source_stats[key] for key in sorted(source_stats)]
+        store.set_state("source_diagnostics", ordered_source_stats)
     if reid_count:
         if verbose_console:
             print(f"Keeper tracking summary: Keeper #1 re-identified {reid_count}x, median confidence {bootstrap_result.get('median_tracking_confidence', 0.0):.2f}")

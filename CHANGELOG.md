@@ -1,3 +1,12 @@
+## 0.13.19
+- Behebt einen reproduzierbaren Multi-Source-Lifecycle-Fehler, bei dem spätere Quellen trotz gültiger Szenen keine Raw-Candidates erzeugen konnten.
+- Source-Transition explizit stabilisiert: transiente Tracking-/Interaktionszustände werden an Quellenwechseln sauber zurückgesetzt, die semantische Keeper-Identität bleibt erhalten.
+- Zeitachsen-Semantik präzisiert: globale Timeline bleibt führend, source-lokale Zeit wird explizit mitgeführt und für Source-Diagnostik verfügbar gemacht.
+- Source-Diagnostik um per-Source-Zähler und Reset-Flags erweitert, inkl. Candidate-/Keeper-/Ball-bezogener Kennzahlen.
+- Neue Regressionstests für Multi-Source-State-Isolation ergänzt.
+- Keine fachlichen Änderungen an Event-/Boundary-/Threshold-Logik aus 0.13.18.
+- Debug-Paketversion auf `goalkeeper_highlights_debug_v0.13.19.zip` angehoben.
+
 ## 0.13.18
 - Feintuning des adaptiven `catch_or_control`-Idle-Tails ohne Änderung der Klassifizierungslogik.
 - `catch_control_idle_tail_medium_seconds` von 5.0 auf 6.0 erhöht.

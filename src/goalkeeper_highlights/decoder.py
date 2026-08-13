@@ -15,6 +15,9 @@ class DecodedFrame:
     frame_index: int
     timestamp: float
     image: np.ndarray
+    source_index: int = 0
+    source_name: str = ""
+    source_local_timestamp: float = 0.0
 
 
 class VideoDecoder(Protocol):
@@ -70,7 +73,15 @@ class OpenCVDecoder:
                 continue
             consecutive_failures = 0
             if index % self.stride == 0:
-                yield DecodedFrame(index, index / self.fps, frame)
+                local_timestamp = index / self.fps
+                yield DecodedFrame(
+                    index,
+                    local_timestamp,
+                    frame,
+                    source_index=0,
+                    source_name=self.path.name,
+                    source_local_timestamp=local_timestamp,
+                )
             index += 1
 
     def close(self) -> None:
@@ -101,7 +112,14 @@ class PyAVDecoder:
             if decoded_index % self.stride != 0:
                 continue
             timestamp = float(frame.time) if frame.time is not None else decoded_index / self.fps
-            yield DecodedFrame(decoded_index, timestamp, frame.to_ndarray(format="bgr24"))
+            yield DecodedFrame(
+                decoded_index,
+                timestamp,
+                frame.to_ndarray(format="bgr24"),
+                source_index=0,
+                source_name=self.path.name,
+                source_local_timestamp=timestamp,
+            )
 
     def close(self) -> None:
         self.container.close()
@@ -126,12 +144,19 @@ class VirtualTimelineDecoder:
 
     def __iter__(self) -> Iterator[DecodedFrame]:
         global_frame = 0
-        for item in self.manifest.files:
+        for source_index, item in enumerate(self.manifest.files):
             decoder = create_decoder(Path(item.path), self.config, self.stride)
             self._current = decoder
             try:
                 for decoded in decoder:
-                    yield DecodedFrame(global_frame, item.global_start_seconds + decoded.timestamp, decoded.image)
+                    yield DecodedFrame(
+                        global_frame,
+                        item.global_start_seconds + decoded.source_local_timestamp,
+                        decoded.image,
+                        source_index=source_index,
+                        source_name=item.name,
+                        source_local_timestamp=decoded.source_local_timestamp,
+                    )
                     global_frame += self.stride
             finally:
                 self.read_recoveries += int(getattr(decoder, "read_recoveries", 0))

@@ -106,6 +106,14 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Boundary-Priorität bleibt unverändert: `controlled_release` → `recovery_distribution_continuation` → `recovery_window_tail` → dynamic idle tail → `timeout`.
 - Regressionen der bestehenden Boundary-Mechanismen bleiben geschützt.
 
+## Version 0.13.19
+
+- Multi-Source-State-Isolation ist verpflichtend: Beim Source-Wechsel müssen transiente Tracking-/Interaktionszustände sauber zurückgesetzt werden.
+- Globale Timeline bleibt führend; source-lokale Zeit darf nur explizit und konsistent zusätzlich geführt werden.
+- Semantische Keeper-Identität (`Keeper #1`) bleibt von source-lokalem Tracker-State getrennt.
+- Source-Diagnostik muss pro Quelle Frames, Keeper-/Ball-Frames, Candidate-Zahlen und Reset-Status nachvollziehbar ausgeben.
+- Event-/Boundary-/Threshold-Logik aus 0.13.18 bleibt fachlich unverändert.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.

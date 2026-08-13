@@ -55,5 +55,6 @@ tests/test_v0_13_13_recovery_tail.py
 tests/test_v0_13_14_final_overlap_dedup.py
 tests/test_v0_13_16_recovery_and_idle_tail.py
 tests/test_v0_13_17_adaptive_idle_tail.py
+tests/test_v0_13_19_multi_source_state.py
 tests/test_video.py
 tests/test_virtual_timeline.py

@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.18, focused on adaptive catch/control idle-tail fine-tuning (MEDIUM/HIGH +1s) with unchanged classification and boundary priorities.
+Current stabilization release: 0.13.19, focused on multi-source state isolation and deterministic source transitions without changing event/boundary thresholds.
 
 # Roadmap
 
@@ -8,6 +8,7 @@ Current stabilization release: 0.13.18, focused on adaptive catch/control idle-t
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.19 fixes multi-source state leaks at source boundaries, keeps semantic keeper identity stable, and adds source-level diagnostics/regression tests without threshold changes.
 - Version 0.13.18 fine-tunes adaptive catch/control idle tails: LOW stays 3s, MEDIUM increases from 5s to 6s, HIGH from 6s to 7s; classification logic remains unchanged.
 - Version 0.13.17 replaces the fixed 3s catch/control idle tail with adaptive LOW/MEDIUM/HIGH classification based on multi-signal evidence.
 - Version 0.13.16 tightens weak recovery continuation absorption and makes catch/control post-roll dynamically idle-aware (11s stays a maximum).
