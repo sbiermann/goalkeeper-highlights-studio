@@ -59,6 +59,34 @@ class PerformanceProfiler:
         self._nvml: Any = None
         self._gpu_handle: Any = None
         self.gpu_name: str | None = None
+        self.stage_order: list[str] = [
+            "decoder_next_ms",
+            "frame_prepare_ms",
+            "model_track_wall_ms",
+            "yolo_preprocess_ms",
+            "yolo_inference_ms",
+            "yolo_postprocess_ms",
+            "track_overhead_ms",
+            "boxes_from_result_ms",
+            "keeper_identity_ms",
+            "keeper_reid_ms",
+            "keeper_histogram_ms",
+            "ball_selection_ms",
+            "event_engine_ms",
+            "candidate_processing_ms",
+            "database_buffer_ms",
+            "database_flush_ms",
+            "diagnostics_ms",
+            "progress_reporting_ms",
+            "preview_ms",
+            "profiler_overhead_ms",
+            "other_loop_ms",
+            "loop_ms",
+        ]
+        self.stage_totals: dict[str, float] = {name: 0.0 for name in self.stage_order}
+        self.stage_counts: dict[str, int] = {name: 0 for name in self.stage_order}
+        self.frame_stage_rows: list[dict[str, Any]] = []
+        self.per_source_frames: dict[int, list[dict[str, Any]]] = {}
         if enabled:
             self._init_gpu()
 
@@ -85,6 +113,36 @@ class PerformanceProfiler:
             return value if math.isfinite(value) else default
         except (TypeError, ValueError):
             return default
+
+    def record_stage_frame(self, payload: dict[str, Any]) -> None:
+        if not self.enabled:
+            return
+        row = dict(payload)
+        source_index = int(row.get("source_index", 0))
+        for stage in self.stage_order:
+            value = self._safe_float(row.get(stage), 0.0)
+            if value < 0:
+                value = 0.0
+            row[stage] = value
+            self.stage_totals[stage] = self.stage_totals.get(stage, 0.0) + value
+            self.stage_counts[stage] = self.stage_counts.get(stage, 0) + 1
+        self.frame_stage_rows.append(row)
+        self.per_source_frames.setdefault(source_index, []).append(row)
+
+    @staticmethod
+    def _percentiles(values: list[float]) -> dict[str, float]:
+        if not values:
+            return {"p50": 0.0, "p95": 0.0, "p99": 0.0}
+        ordered = sorted(values)
+        def pick(p: float) -> float:
+            idx = int(round((len(ordered) - 1) * p))
+            idx = max(0, min(len(ordered) - 1, idx))
+            return ordered[idx]
+        return {
+            "p50": round(pick(0.50), 3),
+            "p95": round(pick(0.95), 3),
+            "p99": round(pick(0.99), 3),
+        }
 
     def sample(
         self,
@@ -179,6 +237,12 @@ class PerformanceProfiler:
                 writer.writeheader()
                 writer.writerows(rows)
         summary = self._summary(extra or {})
+        if self.frame_stage_rows:
+            with (target / "frame_stages.csv").open("w", newline="", encoding="utf-8") as handle:
+                fieldnames = list(self.frame_stage_rows[0].keys())
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(self.frame_stage_rows)
         (target / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
         (target / "report.html").write_text(self._html(summary, rows), encoding="utf-8")
         if self._nvml is not None:
@@ -226,9 +290,57 @@ class PerformanceProfiler:
                 "gpu_memory_used_mb": peak("gpu_memory_used_mb"),
                 "gpu_temperature_c": peak("gpu_temperature_c"),
             },
+            "stage_averages_ms": {
+                name: round(self.stage_totals.get(name, 0.0) / max(1, self.stage_counts.get(name, 0)), 3)
+                for name in self.stage_order
+            },
+            "stage_totals_ms": {
+                name: round(self.stage_totals.get(name, 0.0), 3)
+                for name in self.stage_order
+            },
+            "source_performance": self._source_summary(),
         }
         result.update(extra)
         return result
+
+    def _source_summary(self) -> list[dict[str, Any]]:
+        output: list[dict[str, Any]] = []
+        for source_index in sorted(self.per_source_frames):
+            rows = self.per_source_frames[source_index]
+            if not rows:
+                continue
+            loop_values = [self._safe_float(item.get("loop_ms"), 0.0) for item in rows]
+            decode_values = [self._safe_float(item.get("decoder_next_ms"), 0.0) for item in rows]
+            model_track_values = [self._safe_float(item.get("model_track_wall_ms"), 0.0) for item in rows]
+            inference_values = [self._safe_float(item.get("yolo_inference_ms"), 0.0) for item in rows]
+            post_values = [self._safe_float(item.get("yolo_postprocess_ms"), 0.0) for item in rows]
+            other_values = [self._safe_float(item.get("other_loop_ms"), 0.0) for item in rows]
+            decoded_frames = int(rows[-1].get("decoded_frames", len(rows)))
+            processed_frames = int(rows[-1].get("processed_frames", len(rows)))
+            wall_seconds = sum(loop_values) / 1000.0
+            video_seconds = max(self._safe_float(item.get("video_seconds"), 0.0) for item in rows)
+            percentiles = self._percentiles(loop_values)
+            output.append(
+                {
+                    "source_index": source_index,
+                    "source_name": str(rows[-1].get("source_name", "")),
+                    "source_duration": round(video_seconds, 3),
+                    "decoded_frames": decoded_frames,
+                    "processed_frames": processed_frames,
+                    "average_processed_fps": round(processed_frames / max(wall_seconds, 1e-6), 3),
+                    "realtime_factor": round(video_seconds / max(wall_seconds, 1e-6), 3),
+                    "average_decode_ms": round(statistics.fmean(decode_values), 3) if decode_values else 0.0,
+                    "average_model_track_ms": round(statistics.fmean(model_track_values), 3) if model_track_values else 0.0,
+                    "average_inference_ms": round(statistics.fmean(inference_values), 3) if inference_values else 0.0,
+                    "average_postprocess_ms": round(statistics.fmean(post_values), 3) if post_values else 0.0,
+                    "average_other_ms": round(statistics.fmean(other_values), 3) if other_values else 0.0,
+                    "p50_loop_ms": percentiles["p50"],
+                    "p95_loop_ms": percentiles["p95"],
+                    "p99_loop_ms": percentiles["p99"],
+                    "average_decode_percentiles_ms": self._percentiles(decode_values),
+                }
+            )
+        return output
 
     @staticmethod
     def _html(summary: dict[str, Any], rows: list[dict[str, Any]]) -> str:

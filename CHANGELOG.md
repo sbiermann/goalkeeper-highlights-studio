@@ -1,3 +1,12 @@
+## 0.13.20
+- Performance-Release mit detailliertem Stage-Profiling im Analyse-Loop erweitert.
+- Separate Decode-Wall-Time (`decoder_next_ms`) ergänzt, um Decoder-Kosten klar von YOLO/Tracking zu trennen.
+- `model.track` Wall-Time und abgeleiteter Track/Framework-Overhead (`track_overhead_ms`) als eigene Messgrößen ergänzt.
+- Box-Konvertierung aus Ultralytics-Results auf kompakteren GPU→CPU-Transfer umgestellt, um Synchronisationspunkte zu reduzieren.
+- Per-Source-Performance-Statistiken inkl. Loop-Percentiles und Decode-/Track-/Inference-Mittelwerten ergänzt.
+- Neue Profiling-Tests für Aggregation, Decode-Trennung, Track-Overhead, Source-Stats und Non-Negative-Timings hinzugefügt.
+- Keine fachliche Änderung an Event-/Candidate-/Boundary-Logik.
+
 ## 0.13.19
 - Behebt einen reproduzierbaren Multi-Source-Lifecycle-Fehler, bei dem spätere Quellen trotz gültiger Szenen keine Raw-Candidates erzeugen konnten.
 - Source-Transition explizit stabilisiert: transiente Tracking-/Interaktionszustände werden an Quellenwechseln sauber zurückgesetzt, die semantische Keeper-Identität bleibt erhalten.

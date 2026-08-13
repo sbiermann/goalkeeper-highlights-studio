@@ -46,10 +46,14 @@ def parser() -> argparse.ArgumentParser:
     analyze.add_argument("--verbose", action="store_true", help="Show detailed detector, profiler and FFmpeg output")
     analyze.add_argument("--only-last-source", action="store_true", help="When VIDEO is a directory, analyze only the naturally sorted final source file")
 
-    benchmark = sub.add_parser("benchmark", help="Compare decoders and optionally YOLO throughput")
+    benchmark = sub.add_parser("benchmark", help="Run short, reproducible performance benchmark without clip export")
     _common(benchmark)
-    benchmark.add_argument("--seconds", type=float, default=30.0)
-    benchmark.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=True)
+    benchmark.add_argument("--duration", type=float, default=300.0)
+    benchmark.add_argument("--start", type=float, default=0.0)
+    benchmark.add_argument("--baseline", type=Path, help="Path to baseline benchmark.json for before/after diff")
+    benchmark.add_argument("--fp16", action=argparse.BooleanOptionalAction, default=False, help="Enable YOLO FP16 for controlled A/B benchmark")
+    benchmark.add_argument("--ffmpeg", default="ffmpeg")
+    benchmark.add_argument("--ffprobe", default="ffprobe")
     return p
 
 
@@ -219,9 +223,6 @@ def main() -> int:
     if not video.exists():
         print(f"Source not found: {video}", file=sys.stderr)
         return 2
-    if args.command == "benchmark" and not video.is_file():
-        print("Benchmark currently requires a single video file.", file=sys.stderr)
-        return 2
     cfg = load_config(args.config)
     if args.frame_stride is not None:
         cfg["yolo"]["frame_stride"] = max(1, args.frame_stride)
@@ -238,21 +239,34 @@ def main() -> int:
 
     if args.output:
         output = args.output.expanduser().resolve()
+    elif args.command == "benchmark":
+        output = video.with_name(video.stem + "_goalkeeper_benchmark")
     elif getattr(args, "only_last_source", False):
         output = original_video.with_name(original_video.stem + "_last_source_goalkeeper_highlights")
     else:
         output = video.with_name(video.stem + "_goalkeeper_highlights")
     try:
         if args.command == "benchmark":
-            report = run_benchmark(video, output, cfg, max(1.0, args.seconds), args.yolo)
+            report = run_benchmark(
+                video,
+                output,
+                cfg,
+                duration_seconds=max(1.0, float(args.duration)),
+                start_seconds=max(0.0, float(args.start)),
+                baseline_path=args.baseline.expanduser().resolve() if args.baseline else None,
+                fp16=bool(args.fp16),
+                ffmpeg=args.ffmpeg,
+                ffprobe=args.ffprobe,
+            )
             print(f"Benchmark written to: {output / 'benchmark'}")
-            for name, data in report.get("decoders", {}).items():
-                if "error" in data:
-                    print(f"  {name}: ERROR {data['error']}")
-                else:
-                    print(f"  {name}: {data['decode_fps']:.1f} decode FPS, {data['realtime_factor']:.2f}x")
-            if report.get("yolo"):
-                print(f"  YOLO pipeline: {report['yolo']['pipeline_fps']:.1f} FPS, {report['yolo']['realtime_factor']:.2f}x")
+            print(f"  Analysezeit: {report['analysis_seconds']:.2f}s")
+            print(f"  FPS: {report['processed_fps']:.2f}")
+            print(f"  Echtzeitfaktor: {report['realtime_factor']:.2f}x")
+            print(f"  Candidates/Accepted/Rejected: {report['candidates']}/{report['accepted']}/{report['rejected']}")
+            print(f"  Keeper: {report['keeper']}")
+            diff = report.get("baseline_diff")
+            if isinstance(diff, dict):
+                print(f"  Diff zur Baseline: {diff.get('improvement_percent', 0.0):.2f}%")
         else:
             if args.qwen is not None:
                 cfg["qwen"]["enabled"] = args.qwen

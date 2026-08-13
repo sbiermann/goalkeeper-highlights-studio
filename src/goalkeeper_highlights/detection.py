@@ -484,11 +484,31 @@ ProgressCallback = Callable[[float, str], None]
 def boxes_from_result(result: Any) -> list[Box]:
     if result.boxes is None or len(result.boxes) == 0:
         return []
+    boxes = result.boxes
+    if boxes.id is not None:
+        packed = torch.cat((boxes.xyxy, boxes.conf.unsqueeze(1), boxes.cls.unsqueeze(1), boxes.id.unsqueeze(1)), dim=1).detach().cpu().numpy()
+        return [
+            Box(float(v[0]), float(v[1]), float(v[2]), float(v[3]), float(v[4]), int(v[5]), int(v[6]))
+            for v in packed
+        ]
+    packed = torch.cat((boxes.xyxy, boxes.conf.unsqueeze(1), boxes.cls.unsqueeze(1)), dim=1).detach().cpu().numpy()
+    return [
+        Box(float(v[0]), float(v[1]), float(v[2]), float(v[3]), float(v[4]), int(v[5]), None)
+        for v in packed
+    ]
+
+
+def boxes_from_result_legacy(result: Any) -> list[Box]:
+    if result.boxes is None or len(result.boxes) == 0:
+        return []
     xyxy = result.boxes.xyxy.detach().cpu().numpy()
     conf = result.boxes.conf.detach().cpu().numpy()
     cls = result.boxes.cls.detach().cpu().numpy().astype(int)
     ids = result.boxes.id.detach().cpu().numpy().astype(int) if result.boxes.id is not None else None
-    return [Box(float(v[0]), float(v[1]), float(v[2]), float(v[3]), float(conf[i]), int(cls[i]), int(ids[i]) if ids is not None else None) for i, v in enumerate(xyxy)]
+    return [
+        Box(float(v[0]), float(v[1]), float(v[2]), float(v[3]), float(conf[i]), int(cls[i]), int(ids[i]) if ids is not None else None)
+        for i, v in enumerate(xyxy)
+    ]
 
 
 def normalized_distance(ball: Box, keeper: Box) -> float:
@@ -1882,6 +1902,12 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     event_engine = GoalkeeperEventEngine(event_cfg, clips, duration, decoder.width, decoder.height)
     current_source_index: int | None = None
     source_stats: dict[int, dict[str, Any]] = {}
+    benchmark_start = max(0.0, float(runtime.get("benchmark_start_seconds", 0.0)))
+    benchmark_duration = max(0.0, float(runtime.get("benchmark_duration_seconds", 0.0)))
+    benchmark_end = min(duration, benchmark_start + benchmark_duration) if benchmark_duration > 0 else duration
+    effective_detection_duration = benchmark_end if benchmark_duration > 0 else duration
+    box_mode = str(runtime.get("boxes_from_result_mode", "packed")).lower()
+    box_converter = boxes_from_result_legacy if box_mode == "legacy" else boxes_from_result
 
     def _source_bucket(decoded_frame) -> dict[str, Any]:
         index = int(getattr(decoded_frame, "source_index", 0))
@@ -1913,10 +1939,27 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
         return bucket
 
     try:
-        for decoded in decoder:
+        decoder_iterator = iter(decoder)
+        decoded_frames = 0
+        while True:
+            decode_started = time.perf_counter()
+            try:
+                decoded = next(decoder_iterator)
+            except StopIteration:
+                break
+            decoder_next_ms = (time.perf_counter() - decode_started) * 1000.0
+            decoded_frames += 1
+            if decoded.timestamp < benchmark_start:
+                continue
+            if decoded.timestamp > benchmark_end:
+                break
             loop_started = time.perf_counter()
             database_ms = candidate_ms = preview_ms = 0.0
+            frame_prepare_ms = keeper_identity_ms = keeper_reid_ms = keeper_histogram_ms = ball_selection_ms = event_engine_ms = 0.0
+            progress_reporting_ms = profiler_overhead_ms = boxes_from_result_ms = 0.0
+            database_buffer_ms = database_flush_ms = 0.0
             source_changed = current_source_index is None or decoded.source_index != current_source_index
+            frame_prepare_started = time.perf_counter()
             if source_changed:
                 if current_source_index is not None:
                     candidates.extend(event_engine.finish(decoded.timestamp))
@@ -1932,7 +1975,9 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 source_bucket["candidate_state_resets"] += 1
             else:
                 source_bucket = _source_bucket(decoded)
+            frame_prepare_ms = (time.perf_counter() - frame_prepare_started) * 1000.0
 
+            model_track_started = time.perf_counter()
             result = model.track(
                 source=decoded.image,
                 persist=not source_changed,
@@ -1944,12 +1989,20 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 device=device,
                 verbose=False,
             )[0]
+            model_track_wall_ms = (time.perf_counter() - model_track_started) * 1000.0
+            yolo_speed = getattr(result, "speed", None) or {}
+            yolo_preprocess_ms = max(0.0, float(yolo_speed.get("preprocess", 0.0) or 0.0))
+            yolo_inference_ms = max(0.0, float(yolo_speed.get("inference", 0.0) or 0.0))
+            yolo_postprocess_ms = max(0.0, float(yolo_speed.get("postprocess", 0.0) or 0.0))
+            track_overhead_ms = max(0.0, model_track_wall_ms - yolo_preprocess_ms - yolo_inference_ms - yolo_postprocess_ms)
             processed_frames += 1
             source_bucket["frames_decoded"] += 1
             source_bucket["frames_sampled"] += 1
             source_bucket["frames_processed"] += 1
             source_bucket["source_duration"] = max(source_bucket["source_duration"], float(decoded.source_local_timestamp))
-            boxes = boxes_from_result(result)
+            boxes_started = time.perf_counter()
+            boxes = box_converter(result)
+            boxes_from_result_ms = (time.perf_counter() - boxes_started) * 1000.0
             persons = [b for b in boxes if b.class_id == PERSON_CLASS]
             balls = [b for b in boxes if b.class_id == SPORTS_BALL_CLASS and b.confidence >= minimum_ball_confidence]
             if balls:
@@ -1958,7 +2011,9 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
             identity_confidence = 0.0
 
             if identity is not None:
+                keeper_identity_started = time.perf_counter()
                 match = identity.match(decoded.image, persons, decoded.timestamp)
+                keeper_identity_ms = (time.perf_counter() - keeper_identity_started) * 1000.0
                 if match is not None:
                     keeper, identity_confidence = match.box, match.confidence
                     if match.reidentified:
@@ -1984,6 +2039,9 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                         if verbose_console:
                             print(f"Keeper tracking stable: Keeper #1, confidence {bootstrap_result['confidence']:.2f}")
                         tracking_stable_reported = True
+            if keeper_identity_ms > 0:
+                keeper_histogram_ms = keeper_identity_ms
+                keeper_reid_ms = keeper_identity_ms
 
             # Version 0.13.10: keep gathering logical-person evidence beyond the initial
             # window. This handles recordings that start after a break while the
@@ -2045,14 +2103,18 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
 
             candidate_started = time.perf_counter()
             closest_ball = None
+            ball_selection_started = time.perf_counter()
             if keeper is not None and identity_confidence >= minimum_identity_confidence and balls:
                 closest_ball = min(balls, key=lambda ball: normalized_distance(ball, keeper))
+            ball_selection_ms = (time.perf_counter() - ball_selection_started) * 1000.0
+            event_engine_started = time.perf_counter()
             emitted = event_engine.update(
                 decoded.timestamp,
                 keeper if identity_confidence >= minimum_identity_confidence else None,
                 closest_ball,
                 identity_confidence,
             )
+            event_engine_ms = (time.perf_counter() - event_engine_started) * 1000.0
             candidates.extend(emitted)
             source_bucket["raw_candidates_created"] += len(emitted)
             if keeper is not None and identity_confidence >= minimum_identity_confidence:
@@ -2061,8 +2123,10 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
             candidate_ms = (time.perf_counter() - candidate_started) * 1000
 
             if store is not None and runtime.get("store_detections", True):
+                database_buffer_started = time.perf_counter()
                 detection_buffer.extend((decoded.frame_index, decoded.timestamp, b.track_id, b.class_id, b.confidence, b.x1, b.y1, b.x2, b.y2) for b in boxes)
                 frame_buffer.append((decoded.frame_index, decoded.timestamp, len(boxes), len(persons), len(balls), keeper.track_id if keeper else None))
+                database_buffer_ms = (time.perf_counter() - database_buffer_started) * 1000.0
                 if len(frame_buffer) >= 250:
                     db_started = time.perf_counter()
                     if detection_buffer:
@@ -2070,6 +2134,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                     store.append_frames(frame_buffer)
                     detection_buffer.clear(); frame_buffer.clear()
                     database_ms = (time.perf_counter() - db_started) * 1000
+                    database_flush_ms = database_ms
 
             if preview_enabled and processed_frames % max(1, int(runtime.get("preview_stride", 3))) == 0:
                 preview_started = time.perf_counter()
@@ -2078,12 +2143,63 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
 
             loop_ms = (time.perf_counter() - loop_started) * 1000
             if profiler is not None:
-                sample = profiler.sample(video_seconds=decoded.timestamp, frame_index=decoded.frame_index, processed_frames=processed_frames, loop_ms=loop_ms, speed=getattr(result, "speed", None), candidate_ms=candidate_ms, database_ms=database_ms, preview_ms=preview_ms, raw_candidates=len(candidates), detections=len(boxes), persons=len(persons), balls=len(balls))
+                profiler_started = time.perf_counter()
+                sample = profiler.sample(video_seconds=decoded.timestamp, frame_index=decoded.frame_index, processed_frames=processed_frames, loop_ms=loop_ms, speed=yolo_speed, candidate_ms=candidate_ms, database_ms=database_ms, preview_ms=preview_ms, raw_candidates=len(candidates), detections=len(boxes), persons=len(persons), balls=len(balls))
+                profiler_overhead_ms = (time.perf_counter() - profiler_started) * 1000.0
+                other_loop_ms = max(
+                    0.0,
+                    loop_ms
+                    - frame_prepare_ms
+                    - model_track_wall_ms
+                    - boxes_from_result_ms
+                    - keeper_identity_ms
+                    - ball_selection_ms
+                    - event_engine_ms
+                    - candidate_ms
+                    - database_buffer_ms
+                    - database_flush_ms
+                    - progress_reporting_ms
+                    - preview_ms
+                    - profiler_overhead_ms,
+                )
+                profiler.record_stage_frame(
+                    {
+                        "source_index": int(getattr(decoded, "source_index", 0)),
+                        "source_name": str(getattr(decoded, "source_name", "")),
+                        "frame_index": int(decoded.frame_index),
+                        "video_seconds": float(decoded.timestamp),
+                        "decoded_frames": decoded_frames,
+                        "processed_frames": processed_frames,
+                        "decoder_next_ms": decoder_next_ms,
+                        "frame_prepare_ms": frame_prepare_ms,
+                        "model_track_wall_ms": model_track_wall_ms,
+                        "yolo_preprocess_ms": yolo_preprocess_ms,
+                        "yolo_inference_ms": yolo_inference_ms,
+                        "yolo_postprocess_ms": yolo_postprocess_ms,
+                        "track_overhead_ms": track_overhead_ms,
+                        "boxes_from_result_ms": boxes_from_result_ms,
+                        "keeper_identity_ms": keeper_identity_ms,
+                        "keeper_reid_ms": keeper_reid_ms,
+                        "keeper_histogram_ms": keeper_histogram_ms,
+                        "ball_selection_ms": ball_selection_ms,
+                        "event_engine_ms": event_engine_ms,
+                        "candidate_processing_ms": candidate_ms,
+                        "database_buffer_ms": database_buffer_ms,
+                        "database_flush_ms": database_flush_ms,
+                        "diagnostics_ms": 0.0,
+                        "progress_reporting_ms": progress_reporting_ms,
+                        "preview_ms": preview_ms,
+                        "profiler_overhead_ms": profiler_overhead_ms,
+                        "other_loop_ms": other_loop_ms,
+                        "loop_ms": loop_ms,
+                    }
+                )
                 if sample is not None:
                     if verbose_console:
                         print("  " + profiler.format_console(sample))
             now = time.time()
             if now - last_progress >= float(runtime["progress_interval_seconds"]):
+                progress_started = time.perf_counter()
                 rate = decoded.timestamp / max(0.001, now-started)
                 msg = f"{decoded.timestamp/60:.1f}/{duration/60:.1f} min, {rate:.2f}x realtime, raw candidates: {len(candidates)}"
                 if verbose_console:
@@ -2091,7 +2207,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 if progress_callback:
                     progress_callback(min(0.95, decoded.timestamp / max(duration, 1)), msg)
                 last_progress = now
-        candidates.extend(event_engine.finish(duration))
+                progress_reporting_ms = (time.perf_counter() - progress_started) * 1000.0
+        candidates.extend(event_engine.finish(effective_detection_duration))
     finally:
         decoder.close()
         if detection_buffer and store is not None:
@@ -2170,6 +2287,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "merged_candidates": max(0, raw_candidate_count + len(recovered) - len(merged)),
                 "recovery_candidates": len(recovered) + len(diagnostic_recovered),
                 "diagnostic_recovery_candidates": len(diagnostic_recovered),
+                "processed_frames": processed_frames,
             },
         )
     # Acceptance is decided by GoalkeeperEventEngine using the threshold of the

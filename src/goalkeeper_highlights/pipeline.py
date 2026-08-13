@@ -31,6 +31,8 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
     if any(output.iterdir()) and not overwrite and not config["runtime"]["resume"]:
         raise RuntimeError(f"Output directory is not empty: {output}")
 
+    runtime_cfg = config.get("runtime", {})
+    benchmark_mode = bool(runtime_cfg.get("benchmark_mode", False))
     store = AnalysisStore(output / "analysis.sqlite3")
     profiling_cfg = config.get("profiling", {})
     profiler = PerformanceProfiler(
@@ -86,7 +88,7 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
         timings["parallel_jobs"] = parallel_jobs
         clips_dir = output / "clips"
         rejected_dir = output / "rejected"
-        export_rejected = bool(config.get("runtime", {}).get("export_rejected", True))
+        export_rejected = bool(config.get("runtime", {}).get("export_rejected", True)) and not benchmark_mode
 
         jobs: list[tuple[Path, object]] = []
         accepted: list[Path] = []
@@ -112,7 +114,7 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
                 cut_virtual_clip(ffmpeg, source_manifest, clip, candidate.start, candidate.end, clips_cfg, None if encoder == "stream_copy" else encoder)
             return clip
 
-        if jobs:
+        if jobs and not benchmark_mode:
             with ThreadPoolExecutor(max_workers=parallel_jobs, thread_name_prefix="ffmpeg-clip") as executor:
                 futures = [executor.submit(create, job) for job in jobs]
                 completed_jobs = 0
@@ -125,7 +127,7 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
 
         final = output / "goalkeeper_highlights.mp4"
         concat_started = time.perf_counter()
-        if accepted and (not final.exists() or overwrite):
+        if accepted and (not final.exists() or overwrite) and not benchmark_mode:
             if progress_callback:
                 progress_callback(0.99, "Füge Highlights zusammen")
             concatenate(ffmpeg, accepted, final, output, clips_cfg, None if encoder == "stream_copy" else encoder)
@@ -172,7 +174,7 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
             timings["keeper_confidence"] = float(keeper_detection.get("stabilized_confidence", keeper_detection.get("confidence", 0.0)))
             timings["keeper_reidentifications"] = int(keeper_detection.get("reidentification_count", 0))
         write_reports(output, candidates, timings, keeper_detection if isinstance(keeper_detection, dict) else {})
-        if bool(config.get("diagnostics", {}).get("enabled", True)):
+        if bool(config.get("diagnostics", {}).get("enabled", True)) and not benchmark_mode:
             debug_archive = create_debug_package(
                 output, candidates, timings,
                 keeper_detection if isinstance(keeper_detection, dict) else {},
