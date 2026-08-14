@@ -1,3 +1,12 @@
+## 0.13.24
+- Isolierter Performance-Release zur tieferen Quantifizierung des Ultralytics/`model.track()`-Framework-Overheads bei unveränderter Fachlogik.
+- Track-Overhead-Profiling um feinere Substages erweitert: `track_callback_ms`, `track_predictor_pre_ms`, `track_predictor_post_ms`, `track_tracker_update_ms`, `track_result_build_ms`, `track_result_wrap_ms`, `track_ultralytics_misc_ms` plus Restfeld `track_framework_other_ms`.
+- Reales 4x-A/B auf `C:\videorohdaten\158_0726\FCWittlinge-SFETeil1.MP4` (`start=0`, `duration=120`, `frame_stride=2`, `decoder=opencv`, `decoder_execution_mode=prefetch`, `precision=FP32`, `boxes_from_result_mode=packed`, `track_path=legacy|optimized`).
+- Medianvergleich: Legacy `analysis_seconds=96.6955`, `FPS=15.5535`, `model_track_wall_ms=54.0835`; Optimized `analysis_seconds=90.011`, `FPS=16.703`, `model_track_wall_ms=51.0025`.
+- Ergebnis: messbare Verbesserungen zugunsten Optimized (`analysis_seconds` `+6.91%`, `model_track_wall_ms` `+5.70%`, `track_overhead_ms` `+7.94%`) bei fachlicher Äquivalenz der Benchmark-Kernresultate.
+- Primärer Framework-Teilblock bleibt `track_callback_ms` (insbesondere `track_predictor_pre_ms`); `track_tracker_update_ms` und `track_result_*` waren in den gemessenen Läufen nicht separat >0 messbar.
+- Decoder-Prefetch aus 0.13.23 bleibt Default, FP32 bleibt Standard, FP16 bleibt verworfen; keine Änderungen an Event-/Candidate-/Recovery-/Boundary-Logik oder fachlichen Thresholds.
+
 ## 0.13.23
 - Isolierter Performance-Release für asynchronen OpenCV-Decoder-Prefetch (FP32-only, keine Änderung an Event-/Candidate-/Boundary-/Recovery-Logik).
 - Neuer Decoder-Modus `runtime.decoder_execution_mode` mit `legacy`/`prefetch` und bounded Queue (`runtime.decoder_prefetch_queue_size`, Default `4`).

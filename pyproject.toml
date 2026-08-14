@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "goalkeeper-highlights"
-version = "0.13.23"
+version = "0.13.24"
 description = "Open-source goalkeeper video analysis with YOLO, ByteTrack, Qwen and FFmpeg"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"

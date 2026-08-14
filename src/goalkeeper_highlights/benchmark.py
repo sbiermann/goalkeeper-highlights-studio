@@ -29,8 +29,8 @@ def _benchmark_config(
     start_seconds: float,
     duration_seconds: float,
     fp16: bool,
-    track_path: str = "optimized",
-    decoder_mode: str = "legacy",
+    track_path: str = "legacy",
+    decoder_mode: str = "prefetch",
     decoder_prefetch_queue_size: int = 4,
 ) -> dict[str, Any]:
     cfg = copy.deepcopy(config)
@@ -38,8 +38,8 @@ def _benchmark_config(
     runtime["benchmark_mode"] = True
     runtime["benchmark_start_seconds"] = max(0.0, float(start_seconds))
     runtime["benchmark_duration_seconds"] = max(1.0, float(duration_seconds))
-    runtime["track_execution_mode"] = str(track_path or "optimized").strip().lower()
-    runtime["decoder_execution_mode"] = str(decoder_mode or "legacy").strip().lower()
+    runtime["track_execution_mode"] = str(track_path or "legacy").strip().lower()
+    runtime["decoder_execution_mode"] = str(decoder_mode or "prefetch").strip().lower()
     runtime["decoder_prefetch_queue_size"] = max(1, int(decoder_prefetch_queue_size))
     runtime["export_rejected"] = False
     runtime["verbose_console"] = False

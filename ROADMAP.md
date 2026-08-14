@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.23, focused on OpenCV decoder prefetch overlap with reproducible legacy-vs-prefetch FP32 A/B benchmarks.
+Current stabilization release: 0.13.24, focused on deeper Ultralytics/model.track framework-overhead decomposition with reproducible legacy-vs-optimized FP32 A/B benchmarks.
 
 # Roadmap
 
@@ -8,11 +8,12 @@ Current stabilization release: 0.13.23, focused on OpenCV decoder prefetch overl
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
-- Version 0.13.23 is completed: asynchronous OpenCV decoder prefetch (bounded queue) was implemented and benchmarked against legacy decode with identical FP32/packed settings.
-- Version 0.13.23 confirms functional equivalence in the A/B runs (same processed frames/candidates/accepted/rejected/keeper and no candidate timing/boundary diffs in exported artifacts).
-- Version 0.13.23 observed a measurable median end-to-end gain, so OpenCV decoder prefetch is promoted as runtime default; track semantics and event/candidate/boundary logic remain unchanged.
+- Version 0.13.24 is completed: track/framework-overhead profiling was refined (`track_callback_ms`, `track_predictor_pre_ms`, `track_predictor_post_ms`, `track_tracker_update_ms`, `track_result_build_ms`, `track_result_wrap_ms`, `track_ultralytics_misc_ms`) and benchmarked in real 120s FP32 A/B runs.
+- Version 0.13.24 confirms functional equivalence in the A/B runs (same processed frames/candidates/accepted/rejected/merged/keeper and no candidate timing/boundary diffs in exported artifacts).
+- Version 0.13.24 observed a measurable median gain for the optimized track path (`analysis_seconds` ~`+6.91%`, `model_track_wall_ms` ~`+5.70%`, `track_overhead_ms` ~`+7.94%` improvement), while preserving track semantics and event/candidate/boundary logic.
+- OpenCV decoder prefetch from 0.13.23 remains runtime default; 0.13.24 does not change decoder semantics.
+- Next isolated performance candidate for 0.13.25 is deeper callback/preprocess-path reduction inside Ultralytics framework work that remains in `track_callback_ms`/`track_predictor_pre_ms`.
 - FP32 remains default precision; FP16 stays rejected based on 0.13.21 real benchmarks.
-- Next isolated performance candidate for 0.13.24 is deeper `model.track` framework-overhead reduction and noise reduction around repeated Ultralytics callback/result handling.
 - Version 0.13.22 is completed: track/framework overhead was decomposed further, a persistent predictor track path (`legacy` vs `optimized`) was implemented and A/B-tested, functional equivalence was confirmed, but no measurable performance gain was observed; therefore this path is not promoted as a performance default.
 - Version 0.13.22 keeps FP32 as default runtime precision and does not use FP16 as an optimization path (FP16 remained rejected based on 0.13.21 real benchmarks).
 - Next isolated performance candidate after 0.13.22 is decoder prefetch/decode-processing overlap (not implemented or validated in 0.13.22, and not a default decision).

@@ -17,8 +17,8 @@ def test_v0_13_20_benchmark_cli_args() -> None:
     assert args.duration == 300.0
     assert args.start == 30.0
     assert args.fp16 is True
-    assert args.track_path == "optimized"
-    assert args.decoder_mode == "legacy"
+    assert args.track_path == "legacy"
+    assert args.decoder_mode == "prefetch"
     assert args.decoder_prefetch_queue_size == 4
 
 
@@ -28,8 +28,8 @@ def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
     assert cfg["runtime"]["export_rejected"] is False
     assert cfg["runtime"]["benchmark_start_seconds"] == 10.0
     assert cfg["runtime"]["benchmark_duration_seconds"] == 300.0
-    assert cfg["runtime"]["track_execution_mode"] == "optimized"
-    assert cfg["runtime"]["decoder_execution_mode"] == "legacy"
+    assert cfg["runtime"]["track_execution_mode"] == "legacy"
+    assert cfg["runtime"]["decoder_execution_mode"] == "prefetch"
     assert cfg["runtime"]["decoder_prefetch_queue_size"] == 4
 
 

@@ -1870,10 +1870,13 @@ def _resolve_fp16_state(device: str, requested_fp16: bool) -> tuple[bool, str | 
 
 @dataclass
 class _TrackRuntimeBreakdown:
-    predictor_setup_ms: float = 0.0
+    callback_ms: float = 0.0
+    predictor_pre_ms: float = 0.0
+    predictor_post_ms: float = 0.0
     tracker_update_ms: float = 0.0
     result_build_ms: float = 0.0
-    callbacks_ms: float = 0.0
+    result_wrap_ms: float = 0.0
+    ultralytics_misc_ms: float = 0.0
     framework_other_ms: float = 0.0
 
 
@@ -1892,6 +1895,7 @@ class _TrackRunner:
             "verbose": False,
         }
         self._callback_accum_ms = 0.0
+        self._callback_event_ms: dict[str, float] = {}
         self._tracker_update_accum_ms = 0.0
         self._callback_wrapped = False
         self._predictor_initialized = False
@@ -1928,13 +1932,23 @@ class _TrackRunner:
                 if getattr(callback, "_gh_timing_wrapped", False):
                     continue
                 name = getattr(getattr(callback, "func", callback), "__name__", "")
-                if name not in {"on_predict_start", "on_predict_postprocess_end"}:
+                if name not in {
+                    "on_predict_start",
+                    "on_predict_batch_start",
+                    "on_predict_postprocess_end",
+                    "on_predict_batch_end",
+                    "on_predict_end",
+                }:
                     continue
 
-                def wrapped_cb(*args, __cb=callback, **kwargs):
+                event_key = str(name)
+
+                def wrapped_cb(*args, __cb=callback, __event=event_key, **kwargs):
                     started = time.perf_counter()
                     out = __cb(*args, **kwargs)
-                    self._callback_accum_ms += (time.perf_counter() - started) * 1000.0
+                    elapsed_ms = (time.perf_counter() - started) * 1000.0
+                    self._callback_accum_ms += elapsed_ms
+                    self._callback_event_ms[__event] = self._callback_event_ms.get(__event, 0.0) + elapsed_ms
                     return out
 
                 setattr(wrapped_cb, "_gh_timing_wrapped", True)
@@ -1943,8 +1957,8 @@ class _TrackRunner:
 
     def run(self, frame: np.ndarray, *, source_changed: bool) -> tuple[Any, _TrackRuntimeBreakdown]:
         self._callback_accum_ms = 0.0
+        self._callback_event_ms = {}
         self._tracker_update_accum_ms = 0.0
-        predictor_setup_ms = 0.0
 
         if self.mode == "legacy":
             result = self.model.track(source=frame, persist=not source_changed, **self.kwargs)[0]
@@ -1952,9 +1966,7 @@ class _TrackRunner:
             self._wrap_tracker_updates()
         else:
             if source_changed or not self._predictor_initialized or getattr(self.model, "predictor", None) is None:
-                setup_started = time.perf_counter()
                 result = self.model.track(source=frame, persist=False, **self.kwargs)[0]
-                predictor_setup_ms = (time.perf_counter() - setup_started) * 1000.0
                 self._predictor_initialized = True
                 self._wrap_callbacks()
                 self._wrap_tracker_updates()
@@ -1965,14 +1977,27 @@ class _TrackRunner:
                 result = results[0]
                 self._wrap_tracker_updates()
 
-        callbacks_ms = max(0.0, self._callback_accum_ms)
+        callback_ms = max(0.0, self._callback_accum_ms)
+        predictor_pre_ms = max(
+            0.0,
+            self._callback_event_ms.get("on_predict_start", 0.0)
+            + self._callback_event_ms.get("on_predict_batch_start", 0.0),
+        )
+        predictor_post_ms = max(
+            0.0,
+            self._callback_event_ms.get("on_predict_postprocess_end", 0.0)
+            + self._callback_event_ms.get("on_predict_batch_end", 0.0)
+            + self._callback_event_ms.get("on_predict_end", 0.0),
+        )
         tracker_update_ms = max(0.0, self._tracker_update_accum_ms)
-        result_build_ms = max(0.0, callbacks_ms - tracker_update_ms)
         return result, _TrackRuntimeBreakdown(
-            predictor_setup_ms=max(0.0, predictor_setup_ms),
+            callback_ms=callback_ms,
+            predictor_pre_ms=predictor_pre_ms,
+            predictor_post_ms=predictor_post_ms,
             tracker_update_ms=tracker_update_ms,
-            result_build_ms=result_build_ms,
-            callbacks_ms=callbacks_ms,
+            result_build_ms=0.0,
+            result_wrap_ms=0.0,
+            ultralytics_misc_ms=0.0,
             framework_other_ms=0.0,
         )
 
@@ -1990,9 +2015,9 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     requested_precision = "FP16" if requested_fp16 else "FP32"
     effective_precision = "FP16" if effective_fp16 else "FP32"
     cuda_available = bool(torch.cuda.is_available())
-    track_execution_mode = str(runtime.get("track_execution_mode", "optimized")).strip().lower()
+    track_execution_mode = str(runtime.get("track_execution_mode", "legacy")).strip().lower()
     if track_execution_mode not in {"legacy", "optimized"}:
-        track_execution_mode = "optimized"
+        track_execution_mode = "legacy"
     decoder_execution_mode = str(runtime.get("decoder_execution_mode", "legacy")).strip().lower()
     if decoder_execution_mode not in {"legacy", "prefetch"}:
         decoder_execution_mode = "legacy"
@@ -2149,14 +2174,19 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
             yolo_inference_ms = max(0.0, float(yolo_speed.get("inference", 0.0) or 0.0))
             yolo_postprocess_ms = max(0.0, float(yolo_speed.get("postprocess", 0.0) or 0.0))
             track_overhead_ms = max(0.0, model_track_wall_ms - yolo_preprocess_ms - yolo_inference_ms - yolo_postprocess_ms)
-            track_framework_other_ms = max(
+            track_ultralytics_misc_ms = max(
                 0.0,
                 track_overhead_ms
-                - track_breakdown.predictor_setup_ms
+                - track_breakdown.callback_ms
+                - track_breakdown.predictor_pre_ms
+                - track_breakdown.predictor_post_ms
                 - track_breakdown.tracker_update_ms
                 - track_breakdown.result_build_ms
-                - track_breakdown.callbacks_ms,
+                - track_breakdown.result_wrap_ms,
             )
+            track_breakdown.ultralytics_misc_ms = track_ultralytics_misc_ms
+            track_breakdown.framework_other_ms = track_ultralytics_misc_ms
+            track_framework_other_ms = track_breakdown.framework_other_ms
             processed_frames += 1
             source_bucket["frames_decoded"] += 1
             source_bucket["frames_sampled"] += 1
@@ -2344,10 +2374,13 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                         "yolo_inference_ms": yolo_inference_ms,
                         "yolo_postprocess_ms": yolo_postprocess_ms,
                         "track_overhead_ms": track_overhead_ms,
-                        "track_predictor_setup_ms": track_breakdown.predictor_setup_ms,
+                        "track_callback_ms": track_breakdown.callback_ms,
+                        "track_predictor_pre_ms": track_breakdown.predictor_pre_ms,
+                        "track_predictor_post_ms": track_breakdown.predictor_post_ms,
                         "track_tracker_update_ms": track_breakdown.tracker_update_ms,
                         "track_result_build_ms": track_breakdown.result_build_ms,
-                        "track_callbacks_ms": track_breakdown.callbacks_ms,
+                        "track_result_wrap_ms": track_breakdown.result_wrap_ms,
+                        "track_ultralytics_misc_ms": track_breakdown.ultralytics_misc_ms,
                         "track_framework_other_ms": track_framework_other_ms,
                         "boxes_from_result_ms": boxes_from_result_ms,
                         "keeper_identity_ms": keeper_identity_ms,

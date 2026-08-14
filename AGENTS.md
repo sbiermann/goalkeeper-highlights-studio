@@ -151,6 +151,18 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Ergebnis/Entscheidung: Prefetch wird für den OpenCV-Pfad als neuer Runtime-Default aktiviert (`decoder_execution_mode: prefetch`), da A/B-Medianvorteil klar über Messrauschen liegt und keine fachlichen Abweichungen nachgewiesen wurden.
 - Finaler Teststand: `180 passed`, `0 failed`, `0 skipped`.
 
+## Version 0.13.24
+
+- Ziel ist die isolierte, feinere Untersuchung des verbleibenden Ultralytics/`model.track()`-Framework-Overheads bei unveränderter Fachlogik.
+- Decoder-Prefetch aus 0.13.23 bleibt unverändert Default (`runtime.decoder_execution_mode: prefetch`), FP32 bleibt Standard, FP16 bleibt verworfen.
+- Track-Framework-Profiling wurde auf folgende Unterstufen erweitert: `track_callback_ms`, `track_predictor_pre_ms`, `track_predictor_post_ms`, `track_tracker_update_ms`, `track_result_build_ms`, `track_result_wrap_ms`, `track_ultralytics_misc_ms` (plus Restfeld `track_framework_other_ms`).
+- Reale 4x-A/B-Methodik: `C:\videorohdaten\158_0726\FCWittlinge-SFETeil1.MP4`, `start=0`, `duration=120`, `frame_stride=2`, `decoder=opencv`, `decoder_execution_mode=prefetch`, `precision=FP32`, `boxes_from_result_mode=packed`, `track_path=legacy|optimized`.
+- Finale Mediane: Legacy `analysis_seconds=96.6955`, `FPS=15.5535`, `model_track_wall_ms=54.0835`; Optimized `analysis_seconds=90.011`, `FPS=16.703`, `model_track_wall_ms=51.0025`.
+- Legacy→Optimized-Differenz: Analysezeit `+6.91%`, `model_track_wall_ms +5.70%`, `track_overhead_ms +7.94%`; damit messbarer End-to-End-Vorteil bei fachlicher Äquivalenz.
+- Primärer Framework-Teilblock bleibt `track_callback_ms` (dominant innerhalb `track_overhead_ms`), insbesondere `track_predictor_pre_ms`; `track_tracker_update_ms`/`track_result_*` waren in den gemessenen Läufen nicht separat >0 messbar.
+- Fachliche Äquivalenz in den A/B-Läufen bestätigt: identische `processed_frames` (`1501`), `candidates` (`2`), `accepted` (`1`), `rejected` (`1`), `merged` (`0`), Keeper-Identität (`Keeper #1`) sowie keine Candidate-Timing-/Boundary-Differenzen.
+- Entscheidung: Der optimierte Track-Framework-Pfad kann als neuer Runtime-Default für `track_execution_mode` verwendet werden; Event-/Candidate-/Recovery-/Boundary-/Threshold-Logik bleibt unverändert.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.
