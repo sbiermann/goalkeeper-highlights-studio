@@ -1857,6 +1857,17 @@ def _draw_preview(frame, persons: list[Box], balls: list[Box], keeper: Optional[
     return (cv2.waitKey(1) & 0xFF) != ord('q')
 
 
+def _resolve_fp16_state(device: str, requested_fp16: bool) -> tuple[bool, str | None]:
+    if not requested_fp16:
+        return False, None
+    if not torch.cuda.is_available():
+        return False, "cuda_unavailable"
+    normalized = str(device).strip().lower()
+    if normalized == "cpu":
+        return False, "device_cpu"
+    return True, None
+
+
 def detect(video, duration: float, config: dict, store=None, progress_callback: ProgressCallback | None = None, profiler: PerformanceProfiler | None = None) -> list[Candidate]:
     yolo = config["yolo"]
     keeper_cfg = config["keeper"]
@@ -1865,6 +1876,11 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     device = yolo["device"]
     if device == "auto":
         device = "0" if torch.cuda.is_available() else "cpu"
+    requested_fp16 = bool(yolo.get("half", False))
+    effective_fp16, fp16_fallback_reason = _resolve_fp16_state(device, requested_fp16)
+    requested_precision = "FP16" if requested_fp16 else "FP32"
+    effective_precision = "FP16" if effective_fp16 else "FP32"
+    cuda_available = bool(torch.cuda.is_available())
     stride = max(1, int(yolo.get("frame_stride", 1)))
     decoder = create_decoder(video, config, stride)
     from ultralytics import YOLO
@@ -1987,6 +2003,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 iou=float(yolo["iou"]),
                 imgsz=int(yolo["image_size"]),
                 device=device,
+                half=effective_fp16,
                 verbose=False,
             )[0]
             model_track_wall_ms = (time.perf_counter() - model_track_started) * 1000.0
@@ -2224,6 +2241,18 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
 
     if store is not None:
         store.set_state("decoder_stats", {"read_recoveries": int(getattr(decoder, "read_recoveries", 0))})
+        store.set_state(
+            "precision",
+            {
+                "requested_fp16": requested_fp16,
+                "effective_fp16": effective_fp16,
+                "fp16_fallback_reason": fp16_fallback_reason,
+                "requested_precision": requested_precision,
+                "effective_precision": effective_precision,
+                "cuda_available": cuda_available,
+                "device": str(device),
+            },
+        )
         for item in source_stats.values():
             item["decoder_restarts"] = int(getattr(decoder, "read_recoveries", 0))
 
@@ -2288,6 +2317,13 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "recovery_candidates": len(recovered) + len(diagnostic_recovered),
                 "diagnostic_recovery_candidates": len(diagnostic_recovered),
                 "processed_frames": processed_frames,
+                "requested_fp16": requested_fp16,
+                "effective_fp16": effective_fp16,
+                "fp16_fallback_reason": fp16_fallback_reason,
+                "requested_precision": requested_precision,
+                "effective_precision": effective_precision,
+                "cuda_available": cuda_available,
+                "device": str(device),
             },
         )
     # Acceptance is decided by GoalkeeperEventEngine using the threshold of the

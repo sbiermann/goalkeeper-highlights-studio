@@ -12,8 +12,4 @@ output/
 .run/
 .coverage
 debug_data/
-tmp_bench_before/
-tmp_ab_legacy/
-tmp_ab_packed/
-tmp_bench_after/
-tmp_bench_after_packed/
+tmp_*/

@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 import torch
 
-from goalkeeper_highlights.benchmark import _benchmark_config, _diff
+from goalkeeper_highlights.benchmark import _benchmark_config, _compare_candidates, _compare_detections, _diff, _metrics
 from goalkeeper_highlights.cli import parser
-from goalkeeper_highlights.detection import boxes_from_result, boxes_from_result_legacy
+from goalkeeper_highlights.detection import _resolve_fp16_state, boxes_from_result, boxes_from_result_legacy
 
 
 def test_v0_13_20_benchmark_cli_args() -> None:
@@ -25,6 +25,73 @@ def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
     assert cfg["runtime"]["export_rejected"] is False
     assert cfg["runtime"]["benchmark_start_seconds"] == 10.0
     assert cfg["runtime"]["benchmark_duration_seconds"] == 300.0
+
+
+def test_v0_13_21_fp16_cuda_guard_cpu_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("goalkeeper_highlights.detection.torch.cuda.is_available", lambda: False)
+    effective, reason = _resolve_fp16_state("cpu", True)
+    assert effective is False
+    assert reason == "cuda_unavailable"
+
+
+def test_v0_13_21_fp16_cuda_guard_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("goalkeeper_highlights.detection.torch.cuda.is_available", lambda: True)
+    effective, reason = _resolve_fp16_state("0", True)
+    assert effective is True
+    assert reason is None
+
+
+def test_v0_13_21_benchmark_metrics_precision_fields() -> None:
+    summary = {
+        "version": "0.13.21",
+        "analysis_seconds": 10.0,
+        "video_duration_seconds": 20.0,
+        "processed_frames": 250,
+        "requested_fp16": True,
+        "effective_fp16": False,
+        "fp16_fallback_reason": "cuda_unavailable",
+        "cuda_available": False,
+        "device": "cpu",
+        "system": {"gpu": ""},
+        "keeper_label": "Keeper #1",
+        "keeper_confidence": 0.77,
+        "accepted": 2,
+        "rejected": 1,
+        "final_candidates": 3,
+        "merged_candidates": 1,
+        "stage_averages_ms": {"yolo_inference_ms": 20.0, "model_track_wall_ms": 60.0, "loop_ms": 70.0},
+    }
+    payload = _metrics(summary, start=0.0, duration=20.0, fp16=True)
+    assert payload["requested_precision"] == "FP16"
+    assert payload["effective_precision"] == "FP32"
+    assert payload["fp16_requested"] is True
+    assert payload["fp16_effective"] is False
+    assert payload["fp16_fallback_reason"] == "cuda_unavailable"
+
+
+def test_v0_13_21_detection_numeric_tolerance_equivalent() -> None:
+    baseline = [{"frame": 10, "track_id": 1, "class_id": 0, "confidence": 0.9, "x1": 10.0, "y1": 10.0, "x2": 30.0, "y2": 30.0}]
+    current = [{"frame": 10, "track_id": 1, "class_id": 0, "confidence": 0.885, "x1": 10.5, "y1": 10.3, "x2": 30.2, "y2": 29.9}]
+    comparison = _compare_detections(current, baseline)
+    assert comparison["rows_compared"] == 1
+    assert comparison["rows_equivalent"] == 1
+    assert comparison["bbox_mismatch_rows"] == 0
+
+
+def test_v0_13_21_candidate_difference_not_equivalent() -> None:
+    baseline = {"processed_frames": 3001, "candidates": 5, "accepted": 3, "rejected": 2, "merged": 1, "keeper": "Keeper #1", "keeper_confidence": 0.8}
+    current = {"processed_frames": 3001, "candidates": 6, "accepted": 3, "rejected": 3, "merged": 1, "keeper": "Keeper #1", "keeper_confidence": 0.8}
+    comparison = _compare_candidates(current, baseline)
+    assert comparison["equivalent"] is False
+    assert "candidates" in comparison["differences"]
+
+
+def test_v0_13_21_keeper_difference_not_equivalent() -> None:
+    baseline = {"processed_frames": 3001, "candidates": 5, "accepted": 3, "rejected": 2, "merged": 1, "keeper": "Keeper #1", "keeper_confidence": 0.8}
+    current = {"processed_frames": 3001, "candidates": 5, "accepted": 3, "rejected": 2, "merged": 1, "keeper": "Keeper #2", "keeper_confidence": 0.8}
+    comparison = _compare_candidates(current, baseline)
+    assert comparison["equivalent"] is False
+    assert "keeper" in comparison["differences"]
 
 
 def test_v0_13_20_benchmark_baseline_diff() -> None:

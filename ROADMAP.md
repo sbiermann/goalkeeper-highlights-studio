@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.20, focused on performance profiling transparency and measurable analysis throughput improvements without changing event/boundary thresholds.
+Current stabilization release: 0.13.21, focused on controlled FP32-vs-FP16 benchmarking and precision diagnostics without changing event/boundary thresholds.
 
 # Roadmap
 
@@ -8,6 +8,7 @@ Current stabilization release: 0.13.20, focused on performance profiling transpa
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.21 adds isolated FP16/CUDA precision gating, fallback diagnostics and benchmark comparison metrics while keeping detection/candidate/boundary logic unchanged.
 - Version 0.13.20 extends stage-level performance profiling (decode, model.track wall time, track overhead, source-level metrics) and keeps detection/boundary semantics unchanged.
 - Version 0.13.19 fixes multi-source state leaks at source boundaries, keeps semantic keeper identity stable, and adds source-level diagnostics/regression tests without threshold changes.
 - Version 0.13.18 fine-tunes adaptive catch/control idle tails: LOW stays 3s, MEDIUM increases from 5s to 6s, HIGH from 6s to 7s; classification logic remains unchanged.

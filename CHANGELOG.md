@@ -1,3 +1,11 @@
+## 0.13.21
+- Gezielter FP32-vs-FP16 A/B-Release für YOLO-Inference auf CUDA ohne zusätzliche Pipeline-Optimierungen.
+- FP16 nur noch als kontrollierter Runtime-Zustand mit CUDA-Guard (`requested_fp16`, `effective_fp16`, `fp16_fallback_reason`) ausgewiesen.
+- `model.track(..., half=...)` wird ausschließlich bei effektiv aktivem FP16 gesetzt; CPU-/CUDA-Fallback bleibt crashfrei.
+- Benchmark-/Profiling-Metadaten um Precision-Diagnostik und erweiterte Vergleichskennzahlen ergänzt.
+- Default-Konfiguration (`config/default.yaml` und `src/goalkeeper_highlights/default.yaml`) um explizites `yolo.half: false` synchronisiert.
+- Keine Änderungen an Event-/Candidate-/Boundary-Logik oder zugehörigen Thresholds.
+
 ## 0.13.20
 - Performance-Release mit detailliertem Stage-Profiling im Analyse-Loop erweitert.
 - Separate Decode-Wall-Time (`decoder_next_ms`) ergänzt, um Decoder-Kosten klar von YOLO/Tracking zu trennen.

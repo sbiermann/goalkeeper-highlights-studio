@@ -13,6 +13,7 @@ yolo:
   iou: 0.50
   frame_stride: 1
   device: auto
+  half: false
 
 keeper:
   # Version 0.13.10 keeps collecting evidence when a recording starts after a

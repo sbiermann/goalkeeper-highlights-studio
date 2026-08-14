@@ -44,6 +44,101 @@ def _stage_averages(summary: dict[str, Any]) -> dict[str, float]:
     return {str(k): _as_float(v) for k, v in values.items()}
 
 
+def _improvement_percent(before: float, after: float) -> float:
+    if before <= 0:
+        return 0.0
+    return (before - after) / before * 100.0
+
+
+def _increase_percent(before: float, after: float) -> float:
+    if before <= 0:
+        return 0.0
+    return (after - before) / before * 100.0
+
+
+def _safe_round(value: float, digits: int = 3) -> float:
+    return round(float(value), digits)
+
+
+def _compare_detections(
+    current_rows: list[dict[str, Any]],
+    baseline_rows: list[dict[str, Any]],
+    *,
+    iou_tolerance: float = 0.85,
+    coord_tolerance_px: float = 3.0,
+    confidence_tolerance: float = 0.03,
+) -> dict[str, Any]:
+    baseline_map = {(int(r.get("frame", -1)), int(r.get("track_id", -1)), int(r.get("class_id", -1))): r for r in baseline_rows}
+    total = 0
+    equivalent = 0
+    class_mismatch = 0
+    confidence_mismatch = 0
+    bbox_mismatch = 0
+    missing = 0
+    for row in current_rows:
+        key = (int(row.get("frame", -1)), int(row.get("track_id", -1)), int(row.get("class_id", -1)))
+        base = baseline_map.get(key)
+        total += 1
+        if base is None:
+            missing += 1
+            continue
+        if int(base.get("class_id", -1)) != int(row.get("class_id", -1)):
+            class_mismatch += 1
+            continue
+        conf_delta = abs(_as_float(base.get("confidence")) - _as_float(row.get("confidence")))
+        if conf_delta > confidence_tolerance:
+            confidence_mismatch += 1
+        x1, y1, x2, y2 = (_as_float(row.get("x1")), _as_float(row.get("y1")), _as_float(row.get("x2")), _as_float(row.get("y2")))
+        bx1, by1, bx2, by2 = (_as_float(base.get("x1")), _as_float(base.get("y1")), _as_float(base.get("x2")), _as_float(base.get("y2")))
+        inter_x1 = max(x1, bx1)
+        inter_y1 = max(y1, by1)
+        inter_x2 = min(x2, bx2)
+        inter_y2 = min(y2, by2)
+        inter_w = max(0.0, inter_x2 - inter_x1)
+        inter_h = max(0.0, inter_y2 - inter_y1)
+        inter_area = inter_w * inter_h
+        area_a = max(0.0, (x2 - x1)) * max(0.0, (y2 - y1))
+        area_b = max(0.0, (bx2 - bx1)) * max(0.0, (by2 - by1))
+        union = area_a + area_b - inter_area
+        iou = inter_area / union if union > 0 else 0.0
+        coord_delta = max(abs(x1 - bx1), abs(y1 - by1), abs(x2 - bx2), abs(y2 - by2))
+        if iou < iou_tolerance and coord_delta > coord_tolerance_px:
+            bbox_mismatch += 1
+        if conf_delta <= confidence_tolerance and (iou >= iou_tolerance or coord_delta <= coord_tolerance_px):
+            equivalent += 1
+    return {
+        "rows_compared": total,
+        "rows_equivalent": equivalent,
+        "missing_rows": missing,
+        "class_mismatch_rows": class_mismatch,
+        "confidence_mismatch_rows": confidence_mismatch,
+        "bbox_mismatch_rows": bbox_mismatch,
+        "iou_tolerance": iou_tolerance,
+        "coord_tolerance_px": coord_tolerance_px,
+        "confidence_tolerance": confidence_tolerance,
+    }
+
+
+def _compare_candidates(current: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
+    fields = [
+        "processed_frames",
+        "candidates",
+        "accepted",
+        "rejected",
+        "merged",
+        "keeper",
+        "keeper_confidence",
+    ]
+    differences: dict[str, dict[str, Any]] = {}
+    for field in fields:
+        left = current.get(field)
+        right = baseline.get(field)
+        if left != right:
+            differences[field] = {"baseline": right, "current": left}
+    equivalent = len(differences) == 0
+    return {"equivalent": equivalent, "differences": differences}
+
+
 def _metrics(summary: dict[str, Any], *, start: float, duration: float, fp16: bool) -> dict[str, Any]:
     analysis_seconds = _as_float(summary.get("analysis_seconds"))
     processed_frames = int(summary.get("processed_frames", 0) or 0)
@@ -60,6 +155,14 @@ def _metrics(summary: dict[str, Any], *, start: float, duration: float, fp16: bo
         "start_seconds": round(start, 3),
         "duration_seconds": round(duration, 3),
         "fp16": bool(fp16),
+        "requested_precision": "FP16" if bool(summary.get("requested_fp16", fp16)) else "FP32",
+        "effective_precision": "FP16" if bool(summary.get("effective_fp16", fp16)) else "FP32",
+        "fp16_requested": bool(summary.get("requested_fp16", fp16)),
+        "fp16_effective": bool(summary.get("effective_fp16", fp16)),
+        "fp16_fallback_reason": summary.get("fp16_fallback_reason"),
+        "cuda_available": bool(summary.get("cuda_available", False)),
+        "device": str(summary.get("device", "")),
+        "gpu": str(((summary.get("system") or {}).get("gpu", ""))),
         "analysis_seconds": round(analysis_seconds, 3),
         "video_seconds": round(video_seconds, 3),
         "processed_frames": processed_frames,
@@ -68,7 +171,9 @@ def _metrics(summary: dict[str, Any], *, start: float, duration: float, fp16: bo
         "candidates": int(summary.get("final_candidates", 0) or 0),
         "accepted": int(summary.get("accepted", 0) or 0),
         "rejected": int(summary.get("rejected", 0) or 0),
+        "merged": int(summary.get("merged_candidates", 0) or 0),
         "keeper": str(summary.get("keeper_label", "Keeper #1")),
+        "keeper_confidence": round(_as_float(summary.get("keeper_confidence", 0.0)), 6),
         "stage_averages_ms": stage,
         "source_performance": summary.get("source_performance", []),
     }
@@ -90,11 +195,31 @@ def _diff(current: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str,
         return None
     before = _as_float(baseline.get("analysis_seconds"), 0.0)
     after = _as_float(current.get("analysis_seconds"), 0.0)
-    speedup = ((before - after) / before * 100.0) if before > 0 else 0.0
+    speedup = _improvement_percent(before, after)
+    stage_before = baseline.get("stage_averages_ms", {}) if isinstance(baseline.get("stage_averages_ms"), dict) else {}
+    stage_after = current.get("stage_averages_ms", {}) if isinstance(current.get("stage_averages_ms"), dict) else {}
+    infer_before = _as_float(stage_before.get("yolo_inference_ms"))
+    infer_after = _as_float(stage_after.get("yolo_inference_ms"))
+    model_before = _as_float(stage_before.get("model_track_wall_ms"))
+    model_after = _as_float(stage_after.get("model_track_wall_ms"))
+    loop_before = _as_float(stage_before.get("loop_ms"))
+    loop_after = _as_float(stage_after.get("loop_ms"))
+    fps_before = _as_float(baseline.get("processed_fps"))
+    fps_after = _as_float(current.get("processed_fps"))
+    detection_comparison = _compare_detections(
+        current.get("detections", []) if isinstance(current.get("detections"), list) else [],
+        baseline.get("detections", []) if isinstance(baseline.get("detections"), list) else [],
+    )
+    candidate_comparison = _compare_candidates(current, baseline)
     return {
         "analysis_seconds_before": round(before, 3),
         "analysis_seconds_after": round(after, 3),
-        "improvement_percent": round(speedup, 3),
+        "improvement_percent": _safe_round(speedup),
+        "analysis_time_improvement_percent": _safe_round(speedup),
+        "inference_improvement_percent": _safe_round(_improvement_percent(infer_before, infer_after)),
+        "model_track_improvement_percent": _safe_round(_improvement_percent(model_before, model_after)),
+        "loop_improvement_percent": _safe_round(_improvement_percent(loop_before, loop_after)),
+        "fps_improvement_percent": _safe_round(_increase_percent(fps_before, fps_after)),
         "realtime_before": round(_as_float(baseline.get("realtime_factor")), 3),
         "realtime_after": round(_as_float(current.get("realtime_factor")), 3),
         "processed_frames_before": int(baseline.get("processed_frames", 0) or 0),
@@ -105,8 +230,12 @@ def _diff(current: dict[str, Any], baseline: dict[str, Any] | None) -> dict[str,
         "accepted_after": int(current.get("accepted", 0) or 0),
         "rejected_before": int(baseline.get("rejected", 0) or 0),
         "rejected_after": int(current.get("rejected", 0) or 0),
+        "merged_before": int(baseline.get("merged", 0) or 0),
+        "merged_after": int(current.get("merged", 0) or 0),
         "keeper_before": str(baseline.get("keeper", "Keeper #1")),
         "keeper_after": str(current.get("keeper", "Keeper #1")),
+        "detection_comparison": detection_comparison,
+        "candidate_comparison": candidate_comparison,
     }
 
 

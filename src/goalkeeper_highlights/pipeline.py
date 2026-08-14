@@ -159,6 +159,7 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
         keeper_detection = store.get_state("keeper_detection", {})
         detection_stats = store.get_state("detection_stats", {})
         decoder_stats = store.get_state("decoder_stats", {})
+        precision_stats = store.get_state("precision", {})
         if isinstance(decoder_stats, dict):
             timings["decoder_read_recoveries"] = int(decoder_stats.get("read_recoveries", 0))
         if isinstance(detection_stats, dict):
@@ -173,6 +174,14 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
             timings["keeper_label"] = str(keeper_detection.get("keeper_label", "Keeper #1"))
             timings["keeper_confidence"] = float(keeper_detection.get("stabilized_confidence", keeper_detection.get("confidence", 0.0)))
             timings["keeper_reidentifications"] = int(keeper_detection.get("reidentification_count", 0))
+        if isinstance(precision_stats, dict):
+            timings["requested_fp16"] = bool(precision_stats.get("requested_fp16", False))
+            timings["effective_fp16"] = bool(precision_stats.get("effective_fp16", False))
+            timings["fp16_fallback_reason"] = precision_stats.get("fp16_fallback_reason")
+            timings["requested_precision"] = str(precision_stats.get("requested_precision", "FP32"))
+            timings["effective_precision"] = str(precision_stats.get("effective_precision", "FP32"))
+            timings["cuda_available"] = bool(precision_stats.get("cuda_available", False))
+            timings["device"] = str(precision_stats.get("device", ""))
         write_reports(output, candidates, timings, keeper_detection if isinstance(keeper_detection, dict) else {})
         if bool(config.get("diagnostics", {}).get("enabled", True)) and not benchmark_mode:
             debug_archive = create_debug_package(

@@ -114,6 +114,14 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Source-Diagnostik muss pro Quelle Frames, Keeper-/Ball-Frames, Candidate-Zahlen und Reset-Status nachvollziehbar ausgeben.
 - Event-/Boundary-/Threshold-Logik aus 0.13.18 bleibt fachlich unverändert.
 
+## Version 0.13.21
+
+- Fokus ist ein isolierter FP32-vs-FP16-A/B-Test für YOLO-Inference auf CUDA; keine weiteren Performance-Refactorings in derselben Version.
+- FP16 darf nur effektiv aktiv werden, wenn CUDA verfügbar ist; sonst muss ein sauberer FP32-Fallback mit Diagnosefeldern (`requested_fp16`, `effective_fp16`, `fp16_fallback_reason`) erfolgen.
+- `model.track(..., half=True)` nur bei effektivem FP16 setzen; FP32-Pfad unverändert lassen.
+- Benchmark-Vergleiche müssen denselben Decoderpfad und denselben Box-Converter-Modus verwenden (Packed vs. Packed).
+- Event-, Candidate-, Recovery- und Boundary-Logik inklusive Thresholds bleiben unverändert.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.
