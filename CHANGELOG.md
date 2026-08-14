@@ -1,3 +1,12 @@
+## 0.13.25
+- Isolierter Performance-Release mit Fokus auf den in 0.13.24 identifizierten Ultralytics-Hotspot `track_callback_ms` (insbesondere `track_predictor_pre_ms`) bei unveränderter Fachlogik.
+- Profiling erweitert um feingranulare Callback-/Preparation-Unterstufen: `track_callback_dispatch_ms`, `track_callback_predict_start_ms`, `track_callback_batch_start_ms`, `track_callback_postprocess_end_ms`, `track_callback_batch_end_ms`, `track_callback_predict_end_ms`, `track_callback_other_ms`, `track_pre_source_setup_ms`, `track_pre_batch_prepare_ms`, `track_pre_other_ms`.
+- Reales 4x-A/B auf `C:\videorohdaten\158_0726\FCWittlinge-SFETeil1.MP4` (`start=0`, `duration=120`, `frame_stride=2`, `decoder=opencv`, `decoder_execution_mode=prefetch`, `precision=FP32`, `boxes_from_result_mode=packed`, `track_path=legacy|optimized`).
+- Medianvergleich: Legacy `analysis_seconds=92.075`, `FPS=16.3025`, `model_track_wall_ms=52.53`, `track_overhead_ms=22.338`; Optimized `analysis_seconds=90.4295`, `FPS=16.599`, `model_track_wall_ms=51.384`, `track_overhead_ms=21.6965`.
+- Ergebnis: kleiner, reproduzierbarer Gewinn für Optimized (`analysis_seconds +1.79%`, `model_track_wall_ms +2.18%`, `track_overhead_ms +2.87%`) bei fachlicher Äquivalenz (`processed_frames=1501`, `candidates=2`, `accepted=1`, `rejected=1`, `merged=0`, `keeper=Keeper #1`).
+- Root-Cause-Befund: `track_predictor_pre_ms` dominiert den Callback-Block weiterhin, vor allem über `track_callback_predict_start_ms`; keine Änderungen an Event-/Candidate-/Recovery-/Boundary-Logik oder fachlichen Thresholds.
+- FP32 bleibt Standard, FP16 bleibt verworfen, Decoder-Prefetch bleibt Default, Packed-Result-Conversion bleibt aktiv.
+
 ## 0.13.24
 - Isolierter Performance-Release zur tieferen Quantifizierung des Ultralytics/`model.track()`-Framework-Overheads bei unveränderter Fachlogik.
 - Track-Overhead-Profiling um feinere Substages erweitert: `track_callback_ms`, `track_predictor_pre_ms`, `track_predictor_post_ms`, `track_tracker_update_ms`, `track_result_build_ms`, `track_result_wrap_ms`, `track_ultralytics_misc_ms` plus Restfeld `track_framework_other_ms`.

@@ -163,6 +163,19 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Fachliche Äquivalenz in den A/B-Läufen bestätigt: identische `processed_frames` (`1501`), `candidates` (`2`), `accepted` (`1`), `rejected` (`1`), `merged` (`0`), Keeper-Identität (`Keeper #1`) sowie keine Candidate-Timing-/Boundary-Differenzen.
 - Entscheidung: Der optimierte Track-Framework-Pfad kann als neuer Runtime-Default für `track_execution_mode` verwendet werden; Event-/Candidate-/Recovery-/Boundary-/Threshold-Logik bleibt unverändert.
 
+## Version 0.13.25
+
+- Ziel ist die isolierte Folgestufe auf Basis 0.13.24: verbleibenden Hotspot innerhalb `track_callback_ms` (insb. `track_predictor_pre_ms`) tiefer messbar machen, ohne fachliche Logikänderungen.
+- Decoder-Prefetch aus 0.13.23 bleibt unverändert Default (`runtime.decoder_execution_mode: prefetch`), FP32 bleibt Standard, FP16 bleibt verworfen, Packed-Result-Conversion bleibt aktiv.
+- Callback-/Pre-Profiling wurde verfeinert um: `track_callback_dispatch_ms`, `track_callback_predict_start_ms`, `track_callback_batch_start_ms`, `track_callback_postprocess_end_ms`, `track_callback_batch_end_ms`, `track_callback_predict_end_ms`, `track_callback_other_ms`, `track_pre_source_setup_ms`, `track_pre_batch_prepare_ms`, `track_pre_other_ms`.
+- Reale 4x-A/B-Methodik: `C:\videorohdaten\158_0726\FCWittlinge-SFETeil1.MP4`, `start=0`, `duration=120`, `frame_stride=2`, `decoder=opencv`, `decoder_execution_mode=prefetch`, `precision=FP32`, `boxes_from_result_mode=packed`; vier serielle Läufe (`legacy_run1`, `optimized_run1`, `legacy_run2`, `optimized_run2`).
+- Finale Mediane: Legacy `analysis_seconds=92.075`, `FPS=16.3025`, `model_track_wall_ms=52.53`, `track_overhead_ms=22.338`; Optimized `analysis_seconds=90.4295`, `FPS=16.599`, `model_track_wall_ms=51.384`, `track_overhead_ms=21.6965`.
+- Legacy→Optimized-Differenz: Analysezeit `+1.79%`, `model_track_wall_ms +2.18%`, `track_overhead_ms +2.87%` (kleiner, aber stabiler Gewinn über zwei serielle Paare).
+- Hotspot-Befund: dominanter Anteil bleibt `track_predictor_pre_ms`, nahezu vollständig in `track_callback_predict_start_ms` (`~17.1 ms/frame`); `track_callback_batch_start_ms` ist vernachlässigbar (`~0.001 ms/frame`).
+- Fachliche Äquivalenz in den A/B-Läufen bestätigt: identische `processed_frames` (`1501`), `candidates` (`2`), `accepted` (`1`), `rejected` (`1`), `merged` (`0`), Keeper-Identität (`Keeper #1`) sowie keine Candidate-Timing-/Boundary-Differenzen in den Exporten.
+- Entscheidungsstand: kein riskanter semantischer Eingriff in Tracker-/Event-Pfade; 0.13.25 liefert primär tiefere Hotspot-Transparenz plus kleinen reproduzierbaren Performancegewinn innerhalb des etablierten FP32/Prefetch/Packed-Pfads.
+- Finaler Teststand: `181 passed`, `0 failed`, `0 skipped`.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.

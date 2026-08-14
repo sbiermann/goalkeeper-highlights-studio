@@ -1871,7 +1871,17 @@ def _resolve_fp16_state(device: str, requested_fp16: bool) -> tuple[bool, str | 
 @dataclass
 class _TrackRuntimeBreakdown:
     callback_ms: float = 0.0
+    callback_dispatch_ms: float = 0.0
+    callback_predict_start_ms: float = 0.0
+    callback_batch_start_ms: float = 0.0
+    callback_postprocess_end_ms: float = 0.0
+    callback_batch_end_ms: float = 0.0
+    callback_predict_end_ms: float = 0.0
+    callback_other_ms: float = 0.0
     predictor_pre_ms: float = 0.0
+    pre_source_setup_ms: float = 0.0
+    pre_batch_prepare_ms: float = 0.0
+    pre_other_ms: float = 0.0
     predictor_post_ms: float = 0.0
     tracker_update_ms: float = 0.0
     result_build_ms: float = 0.0
@@ -1896,9 +1906,12 @@ class _TrackRunner:
         }
         self._callback_accum_ms = 0.0
         self._callback_event_ms: dict[str, float] = {}
+        self._callback_event_calls: dict[str, int] = {}
         self._tracker_update_accum_ms = 0.0
         self._callback_wrapped = False
         self._predictor_initialized = False
+        self._last_callback_calls: dict[str, int] = {}
+        self._last_callback_ms: dict[str, float] = {}
 
     def _wrap_tracker_updates(self) -> None:
         predictor = getattr(self.model, "predictor", None)
@@ -1931,8 +1944,7 @@ class _TrackRunner:
             for idx, callback in enumerate(items):
                 if getattr(callback, "_gh_timing_wrapped", False):
                     continue
-                name = getattr(getattr(callback, "func", callback), "__name__", "")
-                if name not in {
+                if str(event_name) not in {
                     "on_predict_start",
                     "on_predict_batch_start",
                     "on_predict_postprocess_end",
@@ -1941,7 +1953,7 @@ class _TrackRunner:
                 }:
                     continue
 
-                event_key = str(name)
+                event_key = str(event_name)
 
                 def wrapped_cb(*args, __cb=callback, __event=event_key, **kwargs):
                     started = time.perf_counter()
@@ -1949,6 +1961,7 @@ class _TrackRunner:
                     elapsed_ms = (time.perf_counter() - started) * 1000.0
                     self._callback_accum_ms += elapsed_ms
                     self._callback_event_ms[__event] = self._callback_event_ms.get(__event, 0.0) + elapsed_ms
+                    self._callback_event_calls[__event] = self._callback_event_calls.get(__event, 0) + 1
                     return out
 
                 setattr(wrapped_cb, "_gh_timing_wrapped", True)
@@ -1958,8 +1971,10 @@ class _TrackRunner:
     def run(self, frame: np.ndarray, *, source_changed: bool) -> tuple[Any, _TrackRuntimeBreakdown]:
         self._callback_accum_ms = 0.0
         self._callback_event_ms = {}
+        self._callback_event_calls = {}
         self._tracker_update_accum_ms = 0.0
 
+        track_started = time.perf_counter()
         if self.mode == "legacy":
             result = self.model.track(source=frame, persist=not source_changed, **self.kwargs)[0]
             self._wrap_callbacks()
@@ -1976,23 +1991,45 @@ class _TrackRunner:
                 results = predictor(source=frame, stream=False)
                 result = results[0]
                 self._wrap_tracker_updates()
+        track_wall_ms = (time.perf_counter() - track_started) * 1000.0
 
         callback_ms = max(0.0, self._callback_accum_ms)
-        predictor_pre_ms = max(
-            0.0,
-            self._callback_event_ms.get("on_predict_start", 0.0)
-            + self._callback_event_ms.get("on_predict_batch_start", 0.0),
+        callback_predict_start_ms = max(0.0, self._callback_event_ms.get("on_predict_start", 0.0))
+        callback_batch_start_ms = max(0.0, self._callback_event_ms.get("on_predict_batch_start", 0.0))
+        callback_postprocess_end_ms = max(0.0, self._callback_event_ms.get("on_predict_postprocess_end", 0.0))
+        callback_batch_end_ms = max(0.0, self._callback_event_ms.get("on_predict_batch_end", 0.0))
+        callback_predict_end_ms = max(0.0, self._callback_event_ms.get("on_predict_end", 0.0))
+        callback_known_ms = (
+            callback_predict_start_ms
+            + callback_batch_start_ms
+            + callback_postprocess_end_ms
+            + callback_batch_end_ms
+            + callback_predict_end_ms
         )
-        predictor_post_ms = max(
-            0.0,
-            self._callback_event_ms.get("on_predict_postprocess_end", 0.0)
-            + self._callback_event_ms.get("on_predict_batch_end", 0.0)
-            + self._callback_event_ms.get("on_predict_end", 0.0),
-        )
+        callback_other_ms = max(0.0, callback_ms - callback_known_ms)
+        callback_dispatch_ms = max(0.0, track_wall_ms - callback_ms)
+
+        predictor_pre_ms = max(0.0, callback_predict_start_ms + callback_batch_start_ms)
+        pre_source_setup_ms = callback_predict_start_ms
+        pre_batch_prepare_ms = callback_batch_start_ms
+        pre_other_ms = max(0.0, predictor_pre_ms - pre_source_setup_ms - pre_batch_prepare_ms)
+        predictor_post_ms = max(0.0, callback_postprocess_end_ms + callback_batch_end_ms + callback_predict_end_ms)
         tracker_update_ms = max(0.0, self._tracker_update_accum_ms)
+        self._last_callback_calls = dict(self._callback_event_calls)
+        self._last_callback_ms = dict(self._callback_event_ms)
         return result, _TrackRuntimeBreakdown(
             callback_ms=callback_ms,
+            callback_dispatch_ms=callback_dispatch_ms,
+            callback_predict_start_ms=callback_predict_start_ms,
+            callback_batch_start_ms=callback_batch_start_ms,
+            callback_postprocess_end_ms=callback_postprocess_end_ms,
+            callback_batch_end_ms=callback_batch_end_ms,
+            callback_predict_end_ms=callback_predict_end_ms,
+            callback_other_ms=callback_other_ms,
             predictor_pre_ms=predictor_pre_ms,
+            pre_source_setup_ms=pre_source_setup_ms,
+            pre_batch_prepare_ms=pre_batch_prepare_ms,
+            pre_other_ms=pre_other_ms,
             predictor_post_ms=predictor_post_ms,
             tracker_update_ms=tracker_update_ms,
             result_build_ms=0.0,
@@ -2065,6 +2102,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     detection_buffer: list[tuple] = []
     frame_buffer: list[tuple] = []
     processed_frames = 0
+    callback_counts: dict[str, int] = {}
+    callback_ms_map: dict[str, float] = {}
     minimum_ball_confidence = float(keeper_cfg.get("minimum_ball_confidence", 0.15))
     minimum_identity_confidence = float(keeper_cfg.get("minimum_identity_confidence", 0.45))
     event_cfg = config.get("event_engine", {})
@@ -2187,6 +2226,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
             track_breakdown.ultralytics_misc_ms = track_ultralytics_misc_ms
             track_breakdown.framework_other_ms = track_ultralytics_misc_ms
             track_framework_other_ms = track_breakdown.framework_other_ms
+            callback_counts = dict(track_runner._last_callback_calls)
+            callback_ms_map = dict(track_runner._last_callback_ms)
             processed_frames += 1
             source_bucket["frames_decoded"] += 1
             source_bucket["frames_sampled"] += 1
@@ -2375,7 +2416,17 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                         "yolo_postprocess_ms": yolo_postprocess_ms,
                         "track_overhead_ms": track_overhead_ms,
                         "track_callback_ms": track_breakdown.callback_ms,
+                        "track_callback_dispatch_ms": track_breakdown.callback_dispatch_ms,
+                        "track_callback_predict_start_ms": track_breakdown.callback_predict_start_ms,
+                        "track_callback_batch_start_ms": track_breakdown.callback_batch_start_ms,
+                        "track_callback_postprocess_end_ms": track_breakdown.callback_postprocess_end_ms,
+                        "track_callback_batch_end_ms": track_breakdown.callback_batch_end_ms,
+                        "track_callback_predict_end_ms": track_breakdown.callback_predict_end_ms,
+                        "track_callback_other_ms": track_breakdown.callback_other_ms,
                         "track_predictor_pre_ms": track_breakdown.predictor_pre_ms,
+                        "track_pre_source_setup_ms": track_breakdown.pre_source_setup_ms,
+                        "track_pre_batch_prepare_ms": track_breakdown.pre_batch_prepare_ms,
+                        "track_pre_other_ms": track_breakdown.pre_other_ms,
                         "track_predictor_post_ms": track_breakdown.predictor_post_ms,
                         "track_tracker_update_ms": track_breakdown.tracker_update_ms,
                         "track_result_build_ms": track_breakdown.result_build_ms,
@@ -2441,6 +2492,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "device": str(device),
                 "track_execution_mode": track_execution_mode,
                 "decoder_execution_mode": decoder_execution_mode,
+                "track_callback_last_calls": callback_counts,
+                "track_callback_last_ms": callback_ms_map,
             },
         )
         for item in source_stats.values():
