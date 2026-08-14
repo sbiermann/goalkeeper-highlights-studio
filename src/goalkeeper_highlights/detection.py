@@ -1868,6 +1868,115 @@ def _resolve_fp16_state(device: str, requested_fp16: bool) -> tuple[bool, str | 
     return True, None
 
 
+@dataclass
+class _TrackRuntimeBreakdown:
+    predictor_setup_ms: float = 0.0
+    tracker_update_ms: float = 0.0
+    result_build_ms: float = 0.0
+    callbacks_ms: float = 0.0
+    framework_other_ms: float = 0.0
+
+
+class _TrackRunner:
+    def __init__(self, model: Any, *, yolo: dict[str, Any], device: str, fp16_enabled: bool, mode: str):
+        self.model = model
+        self.mode = mode if mode in {"legacy", "optimized"} else "optimized"
+        self.kwargs = {
+            "tracker": yolo["tracker"],
+            "classes": [PERSON_CLASS, SPORTS_BALL_CLASS],
+            "conf": float(yolo["confidence"]),
+            "iou": float(yolo["iou"]),
+            "imgsz": int(yolo["image_size"]),
+            "device": device,
+            "half": bool(fp16_enabled),
+            "verbose": False,
+        }
+        self._callback_accum_ms = 0.0
+        self._tracker_update_accum_ms = 0.0
+        self._callback_wrapped = False
+        self._predictor_initialized = False
+
+    def _wrap_tracker_updates(self) -> None:
+        predictor = getattr(self.model, "predictor", None)
+        trackers = getattr(predictor, "trackers", None)
+        if not trackers:
+            return
+        for tracker in trackers:
+            if getattr(tracker, "_gh_update_wrapped", False):
+                continue
+            original = tracker.update
+
+            def wrapped_update(*args, __orig=original, **kwargs):
+                started = time.perf_counter()
+                out = __orig(*args, **kwargs)
+                self._tracker_update_accum_ms += (time.perf_counter() - started) * 1000.0
+                return out
+
+            tracker.update = wrapped_update
+            setattr(tracker, "_gh_update_wrapped", True)
+
+    def _wrap_callbacks(self) -> None:
+        if self._callback_wrapped:
+            return
+        callbacks = getattr(self.model, "callbacks", None)
+        if not isinstance(callbacks, dict):
+            return
+        for event_name, items in callbacks.items():
+            if not isinstance(items, list):
+                continue
+            for idx, callback in enumerate(items):
+                if getattr(callback, "_gh_timing_wrapped", False):
+                    continue
+                name = getattr(getattr(callback, "func", callback), "__name__", "")
+                if name not in {"on_predict_start", "on_predict_postprocess_end"}:
+                    continue
+
+                def wrapped_cb(*args, __cb=callback, **kwargs):
+                    started = time.perf_counter()
+                    out = __cb(*args, **kwargs)
+                    self._callback_accum_ms += (time.perf_counter() - started) * 1000.0
+                    return out
+
+                setattr(wrapped_cb, "_gh_timing_wrapped", True)
+                items[idx] = wrapped_cb
+        self._callback_wrapped = True
+
+    def run(self, frame: np.ndarray, *, source_changed: bool) -> tuple[Any, _TrackRuntimeBreakdown]:
+        self._callback_accum_ms = 0.0
+        self._tracker_update_accum_ms = 0.0
+        predictor_setup_ms = 0.0
+
+        if self.mode == "legacy":
+            result = self.model.track(source=frame, persist=not source_changed, **self.kwargs)[0]
+            self._wrap_callbacks()
+            self._wrap_tracker_updates()
+        else:
+            if source_changed or not self._predictor_initialized or getattr(self.model, "predictor", None) is None:
+                setup_started = time.perf_counter()
+                result = self.model.track(source=frame, persist=False, **self.kwargs)[0]
+                predictor_setup_ms = (time.perf_counter() - setup_started) * 1000.0
+                self._predictor_initialized = True
+                self._wrap_callbacks()
+                self._wrap_tracker_updates()
+            else:
+                self._wrap_callbacks()
+                predictor = self.model.predictor
+                results = predictor(source=frame, stream=False)
+                result = results[0]
+                self._wrap_tracker_updates()
+
+        callbacks_ms = max(0.0, self._callback_accum_ms)
+        tracker_update_ms = max(0.0, self._tracker_update_accum_ms)
+        result_build_ms = max(0.0, callbacks_ms - tracker_update_ms)
+        return result, _TrackRuntimeBreakdown(
+            predictor_setup_ms=max(0.0, predictor_setup_ms),
+            tracker_update_ms=tracker_update_ms,
+            result_build_ms=result_build_ms,
+            callbacks_ms=callbacks_ms,
+            framework_other_ms=0.0,
+        )
+
+
 def detect(video, duration: float, config: dict, store=None, progress_callback: ProgressCallback | None = None, profiler: PerformanceProfiler | None = None) -> list[Candidate]:
     yolo = config["yolo"]
     keeper_cfg = config["keeper"]
@@ -1881,10 +1990,20 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     requested_precision = "FP16" if requested_fp16 else "FP32"
     effective_precision = "FP16" if effective_fp16 else "FP32"
     cuda_available = bool(torch.cuda.is_available())
+    track_execution_mode = str(runtime.get("track_execution_mode", "optimized")).strip().lower()
+    if track_execution_mode not in {"legacy", "optimized"}:
+        track_execution_mode = "optimized"
     stride = max(1, int(yolo.get("frame_stride", 1)))
     decoder = create_decoder(video, config, stride)
     from ultralytics import YOLO
     model = YOLO(yolo["model"])
+    track_runner = _TrackRunner(
+        model,
+        yolo=yolo,
+        device=str(device),
+        fp16_enabled=effective_fp16,
+        mode=track_execution_mode,
+    )
     if store is not None:
         store.save_video(path=Path(video.source_path) if hasattr(video, "source_path") else Path(video), duration=duration, fps=decoder.fps, width=decoder.width, height=decoder.height, frame_count=decoder.frame_count, decoder=config.get("decoder", {}).get("backend", "pyav"))
 
@@ -1994,24 +2113,21 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
             frame_prepare_ms = (time.perf_counter() - frame_prepare_started) * 1000.0
 
             model_track_started = time.perf_counter()
-            result = model.track(
-                source=decoded.image,
-                persist=not source_changed,
-                tracker=yolo["tracker"],
-                classes=[PERSON_CLASS, SPORTS_BALL_CLASS],
-                conf=float(yolo["confidence"]),
-                iou=float(yolo["iou"]),
-                imgsz=int(yolo["image_size"]),
-                device=device,
-                half=effective_fp16,
-                verbose=False,
-            )[0]
+            result, track_breakdown = track_runner.run(decoded.image, source_changed=source_changed)
             model_track_wall_ms = (time.perf_counter() - model_track_started) * 1000.0
             yolo_speed = getattr(result, "speed", None) or {}
             yolo_preprocess_ms = max(0.0, float(yolo_speed.get("preprocess", 0.0) or 0.0))
             yolo_inference_ms = max(0.0, float(yolo_speed.get("inference", 0.0) or 0.0))
             yolo_postprocess_ms = max(0.0, float(yolo_speed.get("postprocess", 0.0) or 0.0))
             track_overhead_ms = max(0.0, model_track_wall_ms - yolo_preprocess_ms - yolo_inference_ms - yolo_postprocess_ms)
+            track_framework_other_ms = max(
+                0.0,
+                track_overhead_ms
+                - track_breakdown.predictor_setup_ms
+                - track_breakdown.tracker_update_ms
+                - track_breakdown.result_build_ms
+                - track_breakdown.callbacks_ms,
+            )
             processed_frames += 1
             source_bucket["frames_decoded"] += 1
             source_bucket["frames_sampled"] += 1
@@ -2194,6 +2310,11 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                         "yolo_inference_ms": yolo_inference_ms,
                         "yolo_postprocess_ms": yolo_postprocess_ms,
                         "track_overhead_ms": track_overhead_ms,
+                        "track_predictor_setup_ms": track_breakdown.predictor_setup_ms,
+                        "track_tracker_update_ms": track_breakdown.tracker_update_ms,
+                        "track_result_build_ms": track_breakdown.result_build_ms,
+                        "track_callbacks_ms": track_breakdown.callbacks_ms,
+                        "track_framework_other_ms": track_framework_other_ms,
                         "boxes_from_result_ms": boxes_from_result_ms,
                         "keeper_identity_ms": keeper_identity_ms,
                         "keeper_reid_ms": keeper_reid_ms,
@@ -2251,6 +2372,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "effective_precision": effective_precision,
                 "cuda_available": cuda_available,
                 "device": str(device),
+                "track_execution_mode": track_execution_mode,
             },
         )
         for item in source_stats.values():
@@ -2324,6 +2446,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "effective_precision": effective_precision,
                 "cuda_available": cuda_available,
                 "device": str(device),
+                "track_execution_mode": track_execution_mode,
             },
         )
     # Acceptance is decided by GoalkeeperEventEngine using the threshold of the

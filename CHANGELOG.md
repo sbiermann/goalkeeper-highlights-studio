@@ -1,3 +1,12 @@
+## 0.13.22
+- Fokus-Release zur Untersuchung und Optimierung des `model.track()`-Framework-Overheads (FP32-only, kein FP16-Einsatz in diesem Release).
+- Neuer umschaltbarer Trackpfad für reproduzierbare A/B-Messungen: `runtime.track_execution_mode` bzw. CLI `benchmark --track-path {legacy,optimized}`.
+- Track-Overhead-Profiling um Unterstufen erweitert: `track_predictor_setup_ms`, `track_tracker_update_ms`, `track_result_build_ms`, `track_callbacks_ms`, `track_framework_other_ms`.
+- Persistenter Predictor-/Tracker-Aufrufpfad für wiederholte Frame-Inferenz eingeführt und gegen den Legacy-Pfad A/B-validiert, bei Beibehaltung der Multi-Source-Reset-Semantik.
+- Ergebnis der 0.13.22-A/B-Messung: kein belastbarer Performancegewinn gegenüber Legacy, daher keine Umstellung auf einen neuen Performance-Default.
+- Benchmark-/Regressionstests für Trackpfad-Auswahl und Runtime-Konfiguration ergänzt; vollständige Testsuite bleibt grün.
+- Keine Änderungen an Event-/Candidate-/Boundary-Logik oder fachlichen Thresholds.
+
 ## 0.13.21
 - Gezielter FP32-vs-FP16 A/B-Release für YOLO-Inference auf CUDA ohne zusätzliche Pipeline-Optimierungen.
 - FP16 nur noch als kontrollierter Runtime-Zustand mit CUDA-Guard (`requested_fp16`, `effective_fp16`, `fp16_fallback_reason`) ausgewiesen.

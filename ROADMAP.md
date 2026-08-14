@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.21, focused on controlled FP32-vs-FP16 benchmarking and precision diagnostics without changing event/boundary thresholds.
+Current stabilization release: 0.13.22, focused on `model.track()` track/framework-overhead investigation with reproducible FP32 A/B comparison of execution paths.
 
 # Roadmap
 
@@ -8,6 +8,9 @@ Current stabilization release: 0.13.21, focused on controlled FP32-vs-FP16 bench
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.22 is completed: track/framework overhead was decomposed further, a persistent predictor track path (`legacy` vs `optimized`) was implemented and A/B-tested, functional equivalence was confirmed, but no measurable performance gain was observed; therefore this path is not promoted as a performance default.
+- Version 0.13.22 keeps FP32 as default runtime precision and does not use FP16 as an optimization path (FP16 remained rejected based on 0.13.21 real benchmarks).
+- Next isolated performance candidate after 0.13.22 is decoder prefetch/decode-processing overlap (not implemented or validated in 0.13.22, and not a default decision).
 - Version 0.13.21 adds isolated FP16/CUDA precision gating, fallback diagnostics and benchmark comparison metrics while keeping detection/candidate/boundary logic unchanged.
 - Version 0.13.20 extends stage-level performance profiling (decode, model.track wall time, track overhead, source-level metrics) and keeps detection/boundary semantics unchanged.
 - Version 0.13.19 fixes multi-source state leaks at source boundaries, keeps semantic keeper identity stable, and adds source-level diagnostics/regression tests without threshold changes.

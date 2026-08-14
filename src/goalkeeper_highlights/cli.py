@@ -52,6 +52,7 @@ def parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--start", type=float, default=0.0)
     benchmark.add_argument("--baseline", type=Path, help="Path to baseline benchmark.json for before/after diff")
     benchmark.add_argument("--fp16", action=argparse.BooleanOptionalAction, default=False, help="Enable YOLO FP16 for controlled A/B benchmark")
+    benchmark.add_argument("--track-path", choices=["legacy", "optimized"], default="optimized", help="Select model.track execution path for overhead A/B")
     benchmark.add_argument("--ffmpeg", default="ffmpeg")
     benchmark.add_argument("--ffprobe", default="ffprobe")
     return p
@@ -255,6 +256,7 @@ def main() -> int:
                 start_seconds=max(0.0, float(args.start)),
                 baseline_path=args.baseline.expanduser().resolve() if args.baseline else None,
                 fp16=bool(args.fp16),
+                track_path=str(args.track_path),
                 ffmpeg=args.ffmpeg,
                 ffprobe=args.ffprobe,
             )

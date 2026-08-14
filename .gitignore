@@ -13,3 +13,4 @@ output/
 .coverage
 debug_data/
 tmp_*/
+.output.txt

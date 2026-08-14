@@ -122,6 +122,20 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Benchmark-Vergleiche müssen denselben Decoderpfad und denselben Box-Converter-Modus verwenden (Packed vs. Packed).
 - Event-, Candidate-, Recovery- und Boundary-Logik inklusive Thresholds bleiben unverändert.
 
+## Version 0.13.22
+
+- Ziel ist die isolierte Untersuchung/Optimierung des innerhalb von `model.track()` gemessenen Track-/Framework-Overheads ohne fachliche Logikänderungen.
+- Technische Untersuchung umfasst Legacy-vs-Optimized-Trackpfad, `_TrackRunner`, offiziellen persistenten Predictor-Pfad und `runtime.track_execution_mode` mit `legacy`/`optimized`.
+- Zusätzliches Overhead-Profiling umfasst `track_predictor_setup_ms`, `track_tracker_update_ms`, `track_result_build_ms`, `track_callbacks_ms`, `track_framework_other_ms`.
+- Reale A/B-Methodik: `C:\videorohdaten\158_0726\FCWittlinge-SFETeil1.MP4`, `start=0`, `duration=120`, `frame_stride=2`, `decoder=opencv`, `precision=FP32`, `boxes_from_result_mode=packed`; vier serielle Läufe (`legacy_run1`, `optimized_run1`, `legacy_run2`, `optimized_run2`).
+- Finale Mediane: Legacy `analysis_seconds=133.4865`, `FPS=11.29`, `model_track_wall_ms=65.327`; Optimized `analysis_seconds=133.495`, `FPS=11.2665`, `model_track_wall_ms=66.9565`.
+- Legacy→Optimized-Differenz: Analysezeit praktisch unverändert (~`-0.006%`), FPS ~`-0.208%`, `model_track_wall_ms` ~`-2.49%` (also langsamer).
+- Fachliche Äquivalenz in den A/B-Läufen bestätigt: identische `candidates`, `accepted`, `rejected`, Keeper-Identität, Candidate-Timings sowie Detection-/Track-ID-Zählwerte.
+- Entscheidung: persistenter Predictor-/Optimized-Pfad wird mangels belastbarem Performancevorteil nicht als Performance-Standard erklärt; die Setup-Overhead-Hypothese wurde geprüft, aber nicht als relevanter Hebel bestätigt.
+- FP32 bleibt Standard; FP16 wurde bereits in 0.13.21 real getestet und wegen schlechterer Performance verworfen und ist kein 0.13.22-Optimierungsweg.
+- Die Packed-Result-Conversion aus 0.13.20 bleibt unverändert bestehen.
+- Finaler Teststand: `176 passed`, `0 failed`, `0 skipped`.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.

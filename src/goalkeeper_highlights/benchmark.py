@@ -22,12 +22,20 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _benchmark_config(config: dict[str, Any], *, start_seconds: float, duration_seconds: float, fp16: bool) -> dict[str, Any]:
+def _benchmark_config(
+    config: dict[str, Any],
+    *,
+    start_seconds: float,
+    duration_seconds: float,
+    fp16: bool,
+    track_path: str = "optimized",
+) -> dict[str, Any]:
     cfg = copy.deepcopy(config)
     runtime = cfg.setdefault("runtime", {})
     runtime["benchmark_mode"] = True
     runtime["benchmark_start_seconds"] = max(0.0, float(start_seconds))
     runtime["benchmark_duration_seconds"] = max(1.0, float(duration_seconds))
+    runtime["track_execution_mode"] = str(track_path or "optimized").strip().lower()
     runtime["export_rejected"] = False
     runtime["verbose_console"] = False
     cfg.setdefault("profiling", {})["enabled"] = True
@@ -248,11 +256,18 @@ def run_benchmark(
     start_seconds: float = 0.0,
     baseline_path: Path | None = None,
     fp16: bool = False,
+    track_path: str = "optimized",
     ffmpeg: str = "ffmpeg",
     ffprobe: str = "ffprobe",
 ) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=True)
-    cfg = _benchmark_config(config, start_seconds=start_seconds, duration_seconds=duration_seconds, fp16=fp16)
+    cfg = _benchmark_config(
+        config,
+        start_seconds=start_seconds,
+        duration_seconds=duration_seconds,
+        fp16=fp16,
+        track_path=track_path,
+    )
     started = time.perf_counter()
     summary = run(source, output, cfg, overwrite=True, ffmpeg=ffmpeg, ffprobe=ffprobe, progress_callback=None)
     wall_seconds = time.perf_counter() - started
@@ -262,6 +277,7 @@ def run_benchmark(
     benchmark_output.mkdir(parents=True, exist_ok=True)
     payload = _metrics(merged_summary, start=start_seconds, duration=duration_seconds, fp16=fp16)
     payload["wall_seconds"] = round(wall_seconds, 3)
+    payload["track_path"] = str(track_path)
     baseline = _load_json(baseline_path)
     payload["baseline_diff"] = _diff(payload, baseline)
     (benchmark_output / "benchmark.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

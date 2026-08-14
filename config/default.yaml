@@ -216,6 +216,7 @@ qwen:
 
 runtime:
   verbose_console: false
+  track_execution_mode: optimized
   store_detections: true
   resume: true
   save_debug_frames: false
