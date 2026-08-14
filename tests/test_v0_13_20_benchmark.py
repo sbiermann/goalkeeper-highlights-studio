@@ -18,6 +18,8 @@ def test_v0_13_20_benchmark_cli_args() -> None:
     assert args.start == 30.0
     assert args.fp16 is True
     assert args.track_path == "optimized"
+    assert args.decoder_mode == "legacy"
+    assert args.decoder_prefetch_queue_size == 4
 
 
 def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
@@ -27,6 +29,8 @@ def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
     assert cfg["runtime"]["benchmark_start_seconds"] == 10.0
     assert cfg["runtime"]["benchmark_duration_seconds"] == 300.0
     assert cfg["runtime"]["track_execution_mode"] == "optimized"
+    assert cfg["runtime"]["decoder_execution_mode"] == "legacy"
+    assert cfg["runtime"]["decoder_prefetch_queue_size"] == 4
 
 
 def test_v0_13_22_benchmark_track_path_override() -> None:
@@ -38,6 +42,19 @@ def test_v0_13_22_benchmark_track_path_override() -> None:
         track_path="legacy",
     )
     assert cfg["runtime"]["track_execution_mode"] == "legacy"
+
+
+def test_v0_13_23_benchmark_decoder_mode_override() -> None:
+    cfg = _benchmark_config(
+        {"runtime": {}, "profiling": {}, "diagnostics": {}, "qwen": {}, "yolo": {}},
+        start_seconds=0.0,
+        duration_seconds=120.0,
+        fp16=False,
+        decoder_mode="prefetch",
+        decoder_prefetch_queue_size=7,
+    )
+    assert cfg["runtime"]["decoder_execution_mode"] == "prefetch"
+    assert cfg["runtime"]["decoder_prefetch_queue_size"] == 7
 
 
 def test_v0_13_21_fp16_cuda_guard_cpu_fallback(monkeypatch: pytest.MonkeyPatch) -> None:

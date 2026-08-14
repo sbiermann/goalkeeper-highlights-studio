@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import queue
+import threading
+import time
 from typing import Iterator, Protocol
 
 os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = os.environ.get("GOALKEEPER_OPENCV_READ_ATTEMPTS", "65536")
@@ -18,6 +21,32 @@ class DecodedFrame:
     source_index: int = 0
     source_name: str = ""
     source_local_timestamp: float = 0.0
+
+
+@dataclass(slots=True)
+class DecoderSignal:
+    kind: str
+    source_index: int | None = None
+    source_name: str = ""
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class DecoderItem:
+    frame: DecodedFrame | None = None
+    signal: DecoderSignal | None = None
+    read_ms: float = 0.0
+    producer_queue_wait_ms: float = 0.0
+    queue_wait_ms: float = 0.0
+
+
+@dataclass(slots=True)
+class DecoderRuntimeStats:
+    read_ms: float = 0.0
+    producer_queue_wait_ms: float = 0.0
+    consumer_queue_wait_ms: float = 0.0
+    prefetch_frames: int = 0
+    queue_max_depth: int = 0
 
 
 class VideoDecoder(Protocol):
@@ -86,6 +115,114 @@ class OpenCVDecoder:
 
     def close(self) -> None:
         self.capture.release()
+
+
+class PrefetchDecoder:
+    """Consumes frames from a source decoder in a dedicated producer thread."""
+
+    def __init__(self, decoder: VideoDecoder, queue_size: int = 4) -> None:
+        self.decoder = decoder
+        self.queue_size = max(1, int(queue_size))
+        self.fps = decoder.fps
+        self.width = decoder.width
+        self.height = decoder.height
+        self.frame_count = decoder.frame_count
+        self.read_recoveries = int(getattr(decoder, "read_recoveries", 0))
+        self.stats = DecoderRuntimeStats()
+        self._queue: queue.Queue[DecoderItem] = queue.Queue(maxsize=self.queue_size)
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._source_active_index: int | None = None
+        self._source_active_name: str = ""
+
+    def _put_item(self, item: DecoderItem) -> None:
+        while not self._stop_event.is_set():
+            wait_started = time.perf_counter()
+            try:
+                self._queue.put(item, timeout=0.1)
+                wait_ms = (time.perf_counter() - wait_started) * 1000.0
+                self.stats.producer_queue_wait_ms += wait_ms
+                item.producer_queue_wait_ms += wait_ms
+                self.stats.queue_max_depth = max(self.stats.queue_max_depth, int(self._queue.qsize()))
+                return
+            except queue.Full:
+                self.stats.producer_queue_wait_ms += (time.perf_counter() - wait_started) * 1000.0
+
+    def _producer_loop(self) -> None:
+        iterator = iter(self.decoder)
+        try:
+            while not self._stop_event.is_set():
+                read_started = time.perf_counter()
+                try:
+                    decoded = next(iterator)
+                except StopIteration:
+                    self._put_item(DecoderItem(signal=DecoderSignal(kind="global_end")))
+                    return
+                except Exception as exc:
+                    self._put_item(DecoderItem(signal=DecoderSignal(kind="exception", error=str(exc))))
+                    return
+                read_ms = (time.perf_counter() - read_started) * 1000.0
+                self.stats.read_ms += read_ms
+                self.stats.prefetch_frames += 1
+
+                if self._source_active_index is None:
+                    self._source_active_index = int(getattr(decoded, "source_index", 0))
+                    self._source_active_name = str(getattr(decoded, "source_name", ""))
+                elif int(getattr(decoded, "source_index", 0)) != self._source_active_index:
+                    self._put_item(
+                        DecoderItem(
+                            signal=DecoderSignal(
+                                kind="source_end",
+                                source_index=self._source_active_index,
+                                source_name=self._source_active_name,
+                            )
+                        )
+                    )
+                    self._source_active_index = int(getattr(decoded, "source_index", 0))
+                    self._source_active_name = str(getattr(decoded, "source_name", ""))
+
+                self._put_item(DecoderItem(frame=decoded, read_ms=read_ms))
+
+            self._put_item(DecoderItem(signal=DecoderSignal(kind="global_end")))
+        finally:
+            if self._source_active_index is not None:
+                self._put_item(
+                    DecoderItem(
+                        signal=DecoderSignal(
+                            kind="source_end",
+                            source_index=self._source_active_index,
+                            source_name=self._source_active_name,
+                        )
+                    )
+                )
+
+    def __iter__(self) -> Iterator[DecoderItem]:
+        if self._thread is not None:
+            raise RuntimeError("PrefetchDecoder iterator may only be consumed once")
+        self._thread = threading.Thread(target=self._producer_loop, name="decoder-prefetch", daemon=True)
+        self._thread.start()
+        while True:
+            wait_started = time.perf_counter()
+            try:
+                item = self._queue.get(timeout=0.1)
+                queue_wait_ms = (time.perf_counter() - wait_started) * 1000.0
+                self.stats.consumer_queue_wait_ms += queue_wait_ms
+                item.queue_wait_ms = queue_wait_ms
+                yield item
+                if item.signal is not None and item.signal.kind in {"global_end", "exception"}:
+                    return
+            except queue.Empty:
+                if self._stop_event.is_set():
+                    return
+                self.stats.consumer_queue_wait_ms += (time.perf_counter() - wait_started) * 1000.0
+
+    def close(self) -> None:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+        self.read_recoveries = int(getattr(self.decoder, "read_recoveries", 0))
+        self.decoder.close()
 
 
 class PyAVDecoder:

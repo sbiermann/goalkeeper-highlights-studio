@@ -61,6 +61,11 @@ class PerformanceProfiler:
         self.gpu_name: str | None = None
         self.stage_order: list[str] = [
             "decoder_next_ms",
+            "decoder_read_ms",
+            "decoder_queue_wait_ms",
+            "consumer_queue_wait_ms",
+            "decoder_prefetch_frames",
+            "decoder_queue_max_depth",
             "frame_prepare_ms",
             "model_track_wall_ms",
             "yolo_preprocess_ms",

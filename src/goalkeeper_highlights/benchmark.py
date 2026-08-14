@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from . import __version__
 from .pipeline import run
 
 
@@ -29,6 +30,8 @@ def _benchmark_config(
     duration_seconds: float,
     fp16: bool,
     track_path: str = "optimized",
+    decoder_mode: str = "legacy",
+    decoder_prefetch_queue_size: int = 4,
 ) -> dict[str, Any]:
     cfg = copy.deepcopy(config)
     runtime = cfg.setdefault("runtime", {})
@@ -36,6 +39,8 @@ def _benchmark_config(
     runtime["benchmark_start_seconds"] = max(0.0, float(start_seconds))
     runtime["benchmark_duration_seconds"] = max(1.0, float(duration_seconds))
     runtime["track_execution_mode"] = str(track_path or "optimized").strip().lower()
+    runtime["decoder_execution_mode"] = str(decoder_mode or "legacy").strip().lower()
+    runtime["decoder_prefetch_queue_size"] = max(1, int(decoder_prefetch_queue_size))
     runtime["export_rejected"] = False
     runtime["verbose_console"] = False
     cfg.setdefault("profiling", {})["enabled"] = True
@@ -159,7 +164,7 @@ def _metrics(summary: dict[str, Any], *, start: float, duration: float, fp16: bo
     fps = processed_frames / max(analysis_seconds, 1e-6)
     realtime = video_seconds / max(analysis_seconds, 1e-6)
     return {
-        "version": str(summary.get("version", "")),
+        "version": str(summary.get("version") or __version__),
         "start_seconds": round(start, 3),
         "duration_seconds": round(duration, 3),
         "fp16": bool(fp16),
@@ -257,6 +262,8 @@ def run_benchmark(
     baseline_path: Path | None = None,
     fp16: bool = False,
     track_path: str = "optimized",
+    decoder_mode: str = "legacy",
+    decoder_prefetch_queue_size: int = 4,
     ffmpeg: str = "ffmpeg",
     ffprobe: str = "ffprobe",
 ) -> dict[str, Any]:
@@ -267,6 +274,8 @@ def run_benchmark(
         duration_seconds=duration_seconds,
         fp16=fp16,
         track_path=track_path,
+        decoder_mode=decoder_mode,
+        decoder_prefetch_queue_size=decoder_prefetch_queue_size,
     )
     started = time.perf_counter()
     summary = run(source, output, cfg, overwrite=True, ffmpeg=ffmpeg, ffprobe=ffprobe, progress_callback=None)
@@ -278,6 +287,8 @@ def run_benchmark(
     payload = _metrics(merged_summary, start=start_seconds, duration=duration_seconds, fp16=fp16)
     payload["wall_seconds"] = round(wall_seconds, 3)
     payload["track_path"] = str(track_path)
+    payload["decoder_mode"] = str(decoder_mode)
+    payload["decoder_prefetch_queue_size"] = int(decoder_prefetch_queue_size)
     baseline = _load_json(baseline_path)
     payload["baseline_diff"] = _diff(payload, baseline)
     (benchmark_output / "benchmark.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

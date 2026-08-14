@@ -53,6 +53,8 @@ def parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--baseline", type=Path, help="Path to baseline benchmark.json for before/after diff")
     benchmark.add_argument("--fp16", action=argparse.BooleanOptionalAction, default=False, help="Enable YOLO FP16 for controlled A/B benchmark")
     benchmark.add_argument("--track-path", choices=["legacy", "optimized"], default="optimized", help="Select model.track execution path for overhead A/B")
+    benchmark.add_argument("--decoder-mode", choices=["legacy", "prefetch"], default="legacy", help="Select OpenCV decoder execution mode for A/B benchmark")
+    benchmark.add_argument("--decoder-prefetch-queue-size", type=int, default=4, help="Bounded queue size for decoder prefetch mode")
     benchmark.add_argument("--ffmpeg", default="ffmpeg")
     benchmark.add_argument("--ffprobe", default="ffprobe")
     return p
@@ -257,6 +259,8 @@ def main() -> int:
                 baseline_path=args.baseline.expanduser().resolve() if args.baseline else None,
                 fp16=bool(args.fp16),
                 track_path=str(args.track_path),
+                decoder_mode=str(args.decoder_mode),
+                decoder_prefetch_queue_size=max(1, int(args.decoder_prefetch_queue_size)),
                 ffmpeg=args.ffmpeg,
                 ffprobe=args.ffprobe,
             )

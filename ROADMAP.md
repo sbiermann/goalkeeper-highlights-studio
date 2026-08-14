@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.22, focused on `model.track()` track/framework-overhead investigation with reproducible FP32 A/B comparison of execution paths.
+Current stabilization release: 0.13.23, focused on OpenCV decoder prefetch overlap with reproducible legacy-vs-prefetch FP32 A/B benchmarks.
 
 # Roadmap
 
@@ -8,6 +8,11 @@ Current stabilization release: 0.13.22, focused on `model.track()` track/framewo
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.23 is completed: asynchronous OpenCV decoder prefetch (bounded queue) was implemented and benchmarked against legacy decode with identical FP32/packed settings.
+- Version 0.13.23 confirms functional equivalence in the A/B runs (same processed frames/candidates/accepted/rejected/keeper and no candidate timing/boundary diffs in exported artifacts).
+- Version 0.13.23 observed a measurable median end-to-end gain, so OpenCV decoder prefetch is promoted as runtime default; track semantics and event/candidate/boundary logic remain unchanged.
+- FP32 remains default precision; FP16 stays rejected based on 0.13.21 real benchmarks.
+- Next isolated performance candidate for 0.13.24 is deeper `model.track` framework-overhead reduction and noise reduction around repeated Ultralytics callback/result handling.
 - Version 0.13.22 is completed: track/framework overhead was decomposed further, a persistent predictor track path (`legacy` vs `optimized`) was implemented and A/B-tested, functional equivalence was confirmed, but no measurable performance gain was observed; therefore this path is not promoted as a performance default.
 - Version 0.13.22 keeps FP32 as default runtime precision and does not use FP16 as an optimization path (FP16 remained rejected based on 0.13.21 real benchmarks).
 - Next isolated performance candidate after 0.13.22 is decoder prefetch/decode-processing overlap (not implemented or validated in 0.13.22, and not a default decision).

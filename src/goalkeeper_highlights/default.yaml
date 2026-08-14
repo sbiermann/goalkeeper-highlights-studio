@@ -216,7 +216,9 @@ qwen:
 
 runtime:
   verbose_console: false
-  track_execution_mode: optimized
+  track_execution_mode: legacy
+  decoder_execution_mode: prefetch
+  decoder_prefetch_queue_size: 4
   store_detections: true
   resume: true
   save_debug_frames: false

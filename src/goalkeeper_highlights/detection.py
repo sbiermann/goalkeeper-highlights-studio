@@ -5,13 +5,13 @@ import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, cast
 
 import cv2
 import numpy as np
 import torch
 
-from .decoder import create_decoder
+from .decoder import DecoderItem, PrefetchDecoder, create_decoder
 from .models import Box, Candidate
 from .event_engine import GoalkeeperEventEngine
 from .profiling import PerformanceProfiler
@@ -1993,8 +1993,17 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     track_execution_mode = str(runtime.get("track_execution_mode", "optimized")).strip().lower()
     if track_execution_mode not in {"legacy", "optimized"}:
         track_execution_mode = "optimized"
+    decoder_execution_mode = str(runtime.get("decoder_execution_mode", "legacy")).strip().lower()
+    if decoder_execution_mode not in {"legacy", "prefetch"}:
+        decoder_execution_mode = "legacy"
+    prefetch_queue_size = max(1, int(runtime.get("decoder_prefetch_queue_size", 4)))
     stride = max(1, int(yolo.get("frame_stride", 1)))
     decoder = create_decoder(video, config, stride)
+    decoder_backend = str(config.get("decoder", {}).get("backend", "pyav")).strip().lower()
+    if decoder_execution_mode == "prefetch" and decoder_backend == "opencv":
+        decoder = PrefetchDecoder(decoder, queue_size=prefetch_queue_size)
+    else:
+        decoder_execution_mode = "legacy"
     from ultralytics import YOLO
     model = YOLO(yolo["model"])
     track_runner = _TrackRunner(
@@ -2077,12 +2086,32 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
         decoder_iterator = iter(decoder)
         decoded_frames = 0
         while True:
+            decoder_read_ms = decoder_queue_wait_ms = consumer_queue_wait_ms = 0.0
             decode_started = time.perf_counter()
             try:
-                decoded = next(decoder_iterator)
+                decoder_item = next(decoder_iterator)
             except StopIteration:
                 break
-            decoder_next_ms = (time.perf_counter() - decode_started) * 1000.0
+            if isinstance(decoder_item, DecoderItem):
+                consumer_queue_wait_ms = max(0.0, float(decoder_item.queue_wait_ms))
+                decoder_queue_wait_ms = max(0.0, float(decoder_item.producer_queue_wait_ms))
+                signal = decoder_item.signal
+                if signal is not None:
+                    if signal.kind == "source_end":
+                        continue
+                    if signal.kind == "global_end":
+                        break
+                    if signal.kind == "exception":
+                        raise RuntimeError(f"Decoder prefetch failed: {signal.error or 'unknown_error'}")
+                decoded = cast(Any, decoder_item.frame)
+                if decoded is None:
+                    continue
+                decoder_read_ms = max(0.0, float(decoder_item.read_ms))
+                decoder_next_ms = consumer_queue_wait_ms
+            else:
+                decoded = cast(Any, decoder_item)
+                decoder_next_ms = (time.perf_counter() - decode_started) * 1000.0
+                decoder_read_ms = decoder_next_ms
             decoded_frames += 1
             if decoded.timestamp < benchmark_start:
                 continue
@@ -2304,6 +2333,11 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                         "decoded_frames": decoded_frames,
                         "processed_frames": processed_frames,
                         "decoder_next_ms": decoder_next_ms,
+                        "decoder_read_ms": decoder_read_ms,
+                        "decoder_queue_wait_ms": decoder_queue_wait_ms,
+                        "consumer_queue_wait_ms": consumer_queue_wait_ms,
+                        "decoder_prefetch_frames": float(getattr(getattr(decoder, "stats", None), "prefetch_frames", 0)),
+                        "decoder_queue_max_depth": float(getattr(getattr(decoder, "stats", None), "queue_max_depth", 0)),
                         "frame_prepare_ms": frame_prepare_ms,
                         "model_track_wall_ms": model_track_wall_ms,
                         "yolo_preprocess_ms": yolo_preprocess_ms,
@@ -2373,6 +2407,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "cuda_available": cuda_available,
                 "device": str(device),
                 "track_execution_mode": track_execution_mode,
+                "decoder_execution_mode": decoder_execution_mode,
             },
         )
         for item in source_stats.values():

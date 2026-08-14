@@ -1,3 +1,12 @@
+## 0.13.23
+- Isolierter Performance-Release für asynchronen OpenCV-Decoder-Prefetch (FP32-only, keine Änderung an Event-/Candidate-/Boundary-/Recovery-Logik).
+- Neuer Decoder-Modus `runtime.decoder_execution_mode` mit `legacy`/`prefetch` und bounded Queue (`runtime.decoder_prefetch_queue_size`, Default `4`).
+- Klare Prefetch-Semantik für Source-Ende, Global-Ende und Decoder-Exceptions; kontrollierte Fehlerpropagation und sauberer Thread-/Decoder-Shutdown.
+- Profiling um Decoder-Prefetch-Metriken erweitert: `decoder_read_ms`, `decoder_queue_wait_ms`, `consumer_queue_wait_ms`, `decoder_prefetch_frames`, `decoder_queue_max_depth`.
+- Reales 4x-A/B auf `C:\videorohdaten\158_0726\FCWittlinge-SFETeil1.MP4` (`start=0`, `duration=120`, `frame_stride=2`, `decoder=opencv`, `precision=FP32`, `packed`): Median Legacy `analysis_seconds=106.6535`, `FPS=14.0745`; Median Prefetch `analysis_seconds=95.1685`, `FPS=15.772`.
+- Ergebnis: fachlich äquivalent im Benchmarkvergleich (identische Frame-/Candidate-/Keeper-Kernwerte), mit messbarem End-to-End-Gewinn; OpenCV-Prefetch wird als Runtime-Default aktiviert.
+- FP32 bleibt Standardpräzision; FP16 bleibt gemäß 0.13.21 verworfen; persistenter Predictor-Pfad aus 0.13.22 bleibt nicht Performance-Default.
+
 ## 0.13.22
 - Fokus-Release zur Untersuchung und Optimierung des `model.track()`-Framework-Overheads (FP32-only, kein FP16-Einsatz in diesem Release).
 - Neuer umschaltbarer Trackpfad für reproduzierbare A/B-Messungen: `runtime.track_execution_mode` bzw. CLI `benchmark --track-path {legacy,optimized}`.

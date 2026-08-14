@@ -136,6 +136,21 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Die Packed-Result-Conversion aus 0.13.20 bleibt unverändert bestehen.
 - Finaler Teststand: `176 passed`, `0 failed`, `0 skipped`.
 
+## Version 0.13.23
+
+- Ziel ist die isolierte Untersuchung eines asynchronen OpenCV-Decoder-Prefetch ohne Änderungen an Event-/Candidate-/Boundary-/Recovery-/Threshold-Logik.
+- Neuer Decoder-Ausführungsmodus `runtime.decoder_execution_mode` mit `legacy`/`prefetch`; konfigurierbare begrenzte Queue über `runtime.decoder_prefetch_queue_size` (Default `4`).
+- Prefetch-Architektur: ein Decoder-Producer-Thread liest Frames in eine bounded Queue; Detection/Tracking (`model.track`) verbleibt strikt im Main-Thread (keine parallelen Track-Aufrufe).
+- Explizite Decoder-Sentinel-Semantik für `source_end`, `global_end` und `exception`; Exceptions werden kontrolliert an den Main-Thread propagiert, inkl. sauberem Shutdown.
+- Prefetch-Profiling ergänzt um `decoder_read_ms`, `decoder_queue_wait_ms`, `consumer_queue_wait_ms`, `decoder_prefetch_frames`, `decoder_queue_max_depth`.
+- Reale A/B-Methodik: `C:\videorohdaten\158_0726\FCWittlinge-SFETeil1.MP4`, `start=0`, `duration=120`, `frame_stride=2`, `decoder=opencv`, `precision=FP32`, `boxes_from_result_mode=packed`; vier serielle Läufe (`legacy_run1`, `prefetch_run1`, `legacy_run2`, `prefetch_run2`).
+- Mediane: Legacy `analysis_seconds=106.6535`, `FPS=14.0745`, `loop_ms=60.036`, `decoder_next_ms=9.2705`; Prefetch `analysis_seconds=95.1685`, `FPS=15.772`, `loop_ms=61.4725`, `decoder_next_ms=0.1025`.
+- Legacy→Prefetch-Differenz: Analysezeit `+10.77%`, FPS `+12.06%`, wahrgenommene Decoder-Wartezeit (`decoder_next_ms`) `+98.89%` verbessert; `model_track_wall_ms` blieb fachlich unbeeinflusst, aber im Median leicht höher (`-2.44%` gegenüber Legacy).
+- Fachliche Äquivalenz in den A/B-Läufen bestätigt: identische `processed_frames` (`1501`), `candidates` (`2`), `accepted` (`1`), `rejected` (`1`), `merged` (`0`), Keeper-Identität (`Keeper #1`) sowie keine Unterschiede in den exportierten Candidate-Timing-/Boundary-Feldern.
+- FP32 bleibt Standardpräzision, FP16 bleibt gemäß 0.13.21 verworfen; der experimentelle persistente Predictor-Pfad aus 0.13.22 bleibt nicht Performance-Default.
+- Ergebnis/Entscheidung: Prefetch wird für den OpenCV-Pfad als neuer Runtime-Default aktiviert (`decoder_execution_mode: prefetch`), da A/B-Medianvorteil klar über Messrauschen liegt und keine fachlichen Abweichungen nachgewiesen wurden.
+- Finaler Teststand: `180 passed`, `0 failed`, `0 skipped`.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.
