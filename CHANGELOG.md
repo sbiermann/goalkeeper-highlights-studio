@@ -1,3 +1,12 @@
+## 0.13.26
+- Isolierter Backend-Research-Release für YOLO-Inference (`yolo.backend`: `pytorch|tensorrt|onnx`) bei unveränderter Event-/Candidate-/Boundary-/Recovery-/Threshold-Logik.
+- Neue Backend-Diagnostik in Benchmark/Reports: `requested_backend`, `effective_backend`, `backend_fallback_reason`, `model_format`, `engine_cached`, `engine_build_seconds`, `backend_load_seconds`, `backend_warmup_seconds`.
+- Optionaler TensorRT-Pfad über offiziellen Ultralytics-Export (`format="engine"`) mit Engine-Cache und sauberem PyTorch-Fallback bei Nichtverfügbarkeit.
+- Optionale Installation auf Referenzsystem (ohne Kern-Dependency-Wechsel): `tensorrt-cu12==10.13.3.9`, `tensorrt_cu12_bindings==10.13.3.9`, `tensorrt_cu12_libs==10.13.3.9`, transitive Runtime `nvidia-cuda-runtime-cu12==12.9.79`.
+- Reale A/B-Serie (120s, `frame_stride=2`, OpenCV+Prefetch, FP32): PyTorch `run1=75.688s`/`run2=69.549s`; TensorRT (effektiv) `run1=215.567s` (mit Engine-Build), `run2=69.135s` (Cache-Reuse).
+- Gemessener Fachstatus im Referenzausschnitt: identische Kernwerte `processed_frames=1501`, `candidates=2`, `accepted=1`, `rejected=1`, Keeper `Keeper #1`; jedoch Abweichung bei `merged` (`PyTorch=0`, `TensorRT=1`) im gemessenen Stand.
+- Entscheidung für 0.13.26: Kein Backend-Default-Wechsel; PyTorch bleibt Standard, TensorRT bleibt optionaler Research-Pfad mit explizitem Fallback.
+
 ## 0.13.25
 - Isolierter Performance-Release mit Fokus auf den in 0.13.24 identifizierten Ultralytics-Hotspot `track_callback_ms` (insbesondere `track_predictor_pre_ms`) bei unveränderter Fachlogik.
 - Profiling erweitert um feingranulare Callback-/Preparation-Unterstufen: `track_callback_dispatch_ms`, `track_callback_predict_start_ms`, `track_callback_batch_start_ms`, `track_callback_postprocess_end_ms`, `track_callback_batch_end_ms`, `track_callback_predict_end_ms`, `track_callback_other_ms`, `track_pre_source_setup_ms`, `track_pre_batch_prepare_ms`, `track_pre_other_ms`.

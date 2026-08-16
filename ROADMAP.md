@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.25, focused on deeper callback/predictor-pre hotspot quantification inside Ultralytics tracking overhead with reproducible legacy-vs-optimized FP32 A/B benchmarks.
+Current stabilization release: 0.13.26, focused on isolated YOLO backend A/B research (PyTorch FP32 vs TensorRT FP32) with explicit fallback diagnostics and no event/candidate logic changes.
 
 # Roadmap
 
@@ -8,6 +8,11 @@ Current stabilization release: 0.13.25, focused on deeper callback/predictor-pre
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.26 is completed as an isolated backend research release: `yolo.backend` (`pytorch|tensorrt|onnx`) was added with explicit `requested_backend`/`effective_backend`/`backend_fallback_reason` diagnostics.
+- Version 0.13.26 completed real serial FP32 runs on the 120s reference segment (`pytorch_run1`, `tensorrt_run1`, `pytorch_run2`, `tensorrt_run2`); TensorRT was only counted as TensorRT where `effective_backend=tensorrt`.
+- Version 0.13.26 confirms engine-cache separation (`engine_build_seconds` vs `analysis_seconds`) and stable PyTorch fallback behavior when backend requirements are unavailable.
+- Version 0.13.26 does not promote a backend default switch: PyTorch remains default, TensorRT remains optional due measured variability and observed candidate-merge divergence in the reference runs.
+- Recommendation for 0.13.27: focus on strict backend-equivalence instrumentation (candidate/detection/track deltas incl. IoU/confidence/track semantics) and validate on a second event-rich excerpt before any default-change decision.
 - Version 0.13.25 is completed: callback/preparation hotspot profiling was refined (`track_callback_dispatch_ms`, per-event callback timings, `track_pre_*` substages) and benchmarked in real 120s FP32 A/B runs.
 - Version 0.13.25 confirms functional equivalence in the A/B runs (same processed frames/candidates/accepted/rejected/merged/keeper and no candidate timing/boundary diffs in exported artifacts).
 - Version 0.13.25 observed a small but reproducible median gain for the optimized track path (`analysis_seconds` ~`+1.79%`, `model_track_wall_ms` ~`+2.18%`, `track_overhead_ms` ~`+2.87%` improvement) while preserving track semantics and event/candidate/boundary logic.

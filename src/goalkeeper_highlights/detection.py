@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import gc
+import hashlib
+import importlib.util
 import math
+import platform
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -1868,6 +1871,27 @@ def _resolve_fp16_state(device: str, requested_fp16: bool) -> tuple[bool, str | 
     return True, None
 
 
+def _normalize_backend(value: Any) -> str:
+    backend = str(value or "pytorch").strip().lower()
+    return backend if backend in {"pytorch", "tensorrt", "onnx"} else "pytorch"
+
+
+def _model_format_from_path(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".engine":
+        return "tensorrt_engine"
+    if suffix == ".onnx":
+        return "onnx"
+    if suffix == ".pt":
+        return "pytorch"
+    return "unknown"
+
+
+def _backend_cache_key(*, model: Path, image_size: int, precision: str, backend: str, backend_version: str) -> str:
+    raw = f"{model.resolve()}|{model.stat().st_mtime_ns}|{image_size}|{precision}|{backend}|{backend_version}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
 @dataclass
 class _TrackRuntimeBreakdown:
     callback_ms: float = 0.0
@@ -2067,7 +2091,95 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     else:
         decoder_execution_mode = "legacy"
     from ultralytics import YOLO
-    model = YOLO(yolo["model"])
+    requested_backend = _normalize_backend(yolo.get("backend", "pytorch"))
+    effective_backend = requested_backend
+    backend_fallback_reason: str | None = None
+    model_path = Path(yolo["model"])
+    model_format = _model_format_from_path(model_path)
+    tensorrt_version = ""
+    onnxruntime_version = ""
+    onnx_execution_provider = ""
+    engine_cached = False
+    engine_build_seconds = 0.0
+    backend_load_seconds = 0.0
+    warmup_seconds = 0.0
+
+    tensorrt_available = importlib.util.find_spec("tensorrt") is not None
+    onnxruntime_available = importlib.util.find_spec("onnxruntime") is not None
+
+    load_started = time.perf_counter()
+    if requested_backend == "tensorrt" and not tensorrt_available:
+        effective_backend = "pytorch"
+        backend_fallback_reason = "tensorrt_unavailable"
+    elif requested_backend == "onnx" and not onnxruntime_available:
+        effective_backend = "pytorch"
+        backend_fallback_reason = "onnxruntime_unavailable"
+
+    if effective_backend == "tensorrt":
+        import tensorrt as trt  # type: ignore[import-not-found]
+
+        tensorrt_version = str(getattr(trt, "__version__", ""))
+        cache_dir = Path("models") / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        precision_tag = "fp16" if effective_fp16 else "fp32"
+        cache_key = _backend_cache_key(
+            model=model_path,
+            image_size=int(yolo["image_size"]),
+            precision=effective_precision,
+            backend="tensorrt",
+            backend_version=tensorrt_version,
+        )
+        engine_path = cache_dir / f"{model_path.stem}-{int(yolo['image_size'])}-{precision_tag}-{cache_key}.engine"
+        engine_cached = engine_path.exists()
+        if not engine_cached:
+            build_started = time.perf_counter()
+            exporter = YOLO(str(model_path))
+            exported = exporter.export(format="engine", imgsz=int(yolo["image_size"]), half=bool(effective_fp16), device=str(device), verbose=False)
+            exported_path = Path(str(exported))
+            if exported_path != engine_path:
+                engine_path.parent.mkdir(parents=True, exist_ok=True)
+                engine_path.write_bytes(exported_path.read_bytes())
+            engine_build_seconds = time.perf_counter() - build_started
+        model = YOLO(str(engine_path))
+        model_format = "tensorrt_engine"
+    elif effective_backend == "onnx":
+        import onnxruntime as ort  # type: ignore[import-not-found]
+
+        onnxruntime_version = str(getattr(ort, "__version__", ""))
+        providers = list(ort.get_available_providers())
+        onnx_execution_provider = providers[0] if providers else ""
+        cache_dir = Path("models") / "cache"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        precision_tag = "fp16" if effective_fp16 else "fp32"
+        cache_key = _backend_cache_key(
+            model=model_path,
+            image_size=int(yolo["image_size"]),
+            precision=effective_precision,
+            backend="onnx",
+            backend_version=onnxruntime_version,
+        )
+        onnx_path = cache_dir / f"{model_path.stem}-{int(yolo['image_size'])}-{precision_tag}-{cache_key}.onnx"
+        engine_cached = onnx_path.exists()
+        if not engine_cached:
+            build_started = time.perf_counter()
+            exporter = YOLO(str(model_path))
+            exported = exporter.export(format="onnx", imgsz=int(yolo["image_size"]), half=bool(effective_fp16), device=str(device), verbose=False)
+            exported_path = Path(str(exported))
+            if exported_path != onnx_path:
+                onnx_path.parent.mkdir(parents=True, exist_ok=True)
+                onnx_path.write_bytes(exported_path.read_bytes())
+            engine_build_seconds = time.perf_counter() - build_started
+        model = YOLO(str(onnx_path))
+        model_format = "onnx"
+    else:
+        model = YOLO(yolo["model"])
+
+    backend_load_seconds = time.perf_counter() - load_started
+
+    warmup_started = time.perf_counter()
+    warmup_frame = np.zeros((max(16, int(yolo["image_size"])), max(16, int(yolo["image_size"])), 3), dtype=np.uint8)
+    _ = model.track(source=warmup_frame, persist=False, tracker=yolo["tracker"], classes=[PERSON_CLASS, SPORTS_BALL_CLASS], conf=float(yolo["confidence"]), iou=float(yolo["iou"]), imgsz=int(yolo["image_size"]), device=device, half=bool(effective_fp16), verbose=False)
+    warmup_seconds = time.perf_counter() - warmup_started
     track_runner = _TrackRunner(
         model,
         yolo=yolo,
@@ -2488,8 +2600,22 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "fp16_fallback_reason": fp16_fallback_reason,
                 "requested_precision": requested_precision,
                 "effective_precision": effective_precision,
+                "requested_backend": requested_backend,
+                "effective_backend": effective_backend,
+                "backend_fallback_reason": backend_fallback_reason,
+                "model_format": model_format,
+                "engine_cached": engine_cached,
+                "engine_build_seconds": engine_build_seconds,
+                "backend_load_seconds": backend_load_seconds,
+                "backend_warmup_seconds": warmup_seconds,
                 "cuda_available": cuda_available,
                 "device": str(device),
+                "cuda_device": str(torch.cuda.current_device()) if cuda_available else "",
+                "gpu_name": torch.cuda.get_device_name(0) if cuda_available else "",
+                "tensorrt_version": tensorrt_version,
+                "onnxruntime_version": onnxruntime_version,
+                "onnx_execution_provider": onnx_execution_provider,
+                "python_version": platform.python_version(),
                 "track_execution_mode": track_execution_mode,
                 "decoder_execution_mode": decoder_execution_mode,
                 "track_callback_last_calls": callback_counts,
@@ -2565,6 +2691,14 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "fp16_fallback_reason": fp16_fallback_reason,
                 "requested_precision": requested_precision,
                 "effective_precision": effective_precision,
+                "requested_backend": requested_backend,
+                "effective_backend": effective_backend,
+                "backend_fallback_reason": backend_fallback_reason,
+                "model_format": model_format,
+                "engine_cached": engine_cached,
+                "engine_build_seconds": engine_build_seconds,
+                "backend_load_seconds": backend_load_seconds,
+                "backend_warmup_seconds": warmup_seconds,
                 "cuda_available": cuda_available,
                 "device": str(device),
                 "track_execution_mode": track_execution_mode,

@@ -12,7 +12,7 @@ from goalkeeper_highlights.detection import _resolve_fp16_state, boxes_from_resu
 
 
 def test_v0_13_20_benchmark_cli_args() -> None:
-    args = parser().parse_args(["benchmark", "video.mp4", "--duration", "300", "--start", "30", "--fp16"])
+    args = parser().parse_args(["benchmark", "video.mp4", "--duration", "300", "--start", "30", "--fp16", "--backend", "tensorrt"])
     assert args.command == "benchmark"
     assert args.duration == 300.0
     assert args.start == 30.0
@@ -20,10 +20,17 @@ def test_v0_13_20_benchmark_cli_args() -> None:
     assert args.track_path == "legacy"
     assert args.decoder_mode == "prefetch"
     assert args.decoder_prefetch_queue_size == 4
+    assert args.backend == "tensorrt"
 
 
 def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
-    cfg = _benchmark_config({"runtime": {}, "profiling": {}, "diagnostics": {}, "qwen": {}, "yolo": {}}, start_seconds=10.0, duration_seconds=300.0, fp16=False)
+    cfg = _benchmark_config(
+        {"runtime": {}, "profiling": {}, "diagnostics": {}, "qwen": {}, "yolo": {}},
+        start_seconds=10.0,
+        duration_seconds=300.0,
+        fp16=False,
+        backend="onnx",
+    )
     assert cfg["runtime"]["benchmark_mode"] is True
     assert cfg["runtime"]["export_rejected"] is False
     assert cfg["runtime"]["benchmark_start_seconds"] == 10.0
@@ -31,6 +38,7 @@ def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
     assert cfg["runtime"]["track_execution_mode"] == "legacy"
     assert cfg["runtime"]["decoder_execution_mode"] == "prefetch"
     assert cfg["runtime"]["decoder_prefetch_queue_size"] == 4
+    assert cfg["yolo"]["backend"] == "onnx"
 
 
 def test_v0_13_22_benchmark_track_path_override() -> None:
@@ -80,6 +88,14 @@ def test_v0_13_21_benchmark_metrics_precision_fields() -> None:
         "requested_fp16": True,
         "effective_fp16": False,
         "fp16_fallback_reason": "cuda_unavailable",
+        "requested_backend": "tensorrt",
+        "effective_backend": "pytorch",
+        "backend_fallback_reason": "tensorrt_unavailable",
+        "model_format": "pytorch",
+        "engine_cached": False,
+        "engine_build_seconds": 0.0,
+        "backend_load_seconds": 0.2,
+        "backend_warmup_seconds": 0.1,
         "cuda_available": False,
         "device": "cpu",
         "system": {"gpu": ""},
@@ -97,6 +113,9 @@ def test_v0_13_21_benchmark_metrics_precision_fields() -> None:
     assert payload["fp16_requested"] is True
     assert payload["fp16_effective"] is False
     assert payload["fp16_fallback_reason"] == "cuda_unavailable"
+    assert payload["requested_backend"] == "tensorrt"
+    assert payload["effective_backend"] == "pytorch"
+    assert payload["backend_fallback_reason"] == "tensorrt_unavailable"
 
 
 def test_v0_13_21_detection_numeric_tolerance_equivalent() -> None:

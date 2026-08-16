@@ -176,6 +176,26 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Entscheidungsstand: kein riskanter semantischer Eingriff in Tracker-/Event-Pfade; 0.13.25 liefert primär tiefere Hotspot-Transparenz plus kleinen reproduzierbaren Performancegewinn innerhalb des etablierten FP32/Prefetch/Packed-Pfads.
 - Finaler Teststand: `181 passed`, `0 failed`, `0 skipped`.
 
+## Version 0.13.26
+
+- Ziel war ein isolierter YOLO-Inference-Backend-Vergleich (PyTorch FP32 vs. TensorRT FP32) ohne Änderungen an Event-/Candidate-/Boundary-/Recovery-/Threshold-Logik.
+- Basis-Konfiguration für die A/B-Läufe: `decoder=opencv`, `runtime.decoder_execution_mode=prefetch`, `precision=FP32`, `runtime.track_execution_mode=optimized`, `frame_stride=2`.
+- Neuer expliziter Backend-Schalter: `yolo.backend` mit `pytorch|tensorrt|onnx`, plus Diagnosefelder `requested_backend`, `effective_backend`, `backend_fallback_reason`.
+- TensorRT blieb optional: installiert wurden `tensorrt-cu12==10.13.3.9`, `tensorrt_cu12_bindings==10.13.3.9`, `tensorrt_cu12_libs==10.13.3.9`, transitive Runtime `nvidia-cuda-runtime-cu12==12.9.79`.
+- Verifizierte Umgebung: Python `3.12.10`, PyTorch `2.13.0+cu126`, CUDA Runtime `12.6`, cuDNN `91002`, Ultralytics `8.4.109`, OpenCV `5.0.0`, GPU `NVIDIA GeForce RTX 3060 Ti`, Treiber `610.62`.
+- TensorRT-Engine-Cache ist aktiv (`models/cache/...engine`) mit Build/Load-Trennung: `engine_build_seconds` und `backend_load_seconds` werden separat erfasst.
+- Frühe TensorRT-Tests vor Installation liefen kontrolliert als Fallback (`requested_backend=tensorrt`, `effective_backend=pytorch`), keine falsche TensorRT-Klassifikation.
+- Echte TensorRT-FP32-Läufe nach Installation:
+  - `tmp_bench_01326_tensorrt_run1`: `analysis_seconds=215.567`, `processed_fps=6.963`, `effective_backend=tensorrt`, `engine_cached=false`, `engine_build_seconds=146.362984`.
+  - `tmp_bench_01326_tensorrt_run2`: `analysis_seconds=69.135`, `processed_fps=21.711`, `effective_backend=tensorrt`, `engine_cached=true`, `engine_build_seconds=0.0`.
+- PyTorch-FP32-Referenzläufe:
+  - `tmp_bench_01326_pytorch_run1`: `analysis_seconds=75.688`, `processed_fps=19.831`.
+  - `tmp_bench_01326_pytorch_run2`: `analysis_seconds=69.549`, `processed_fps=21.582`.
+- Median auf den vier seriellen Läufen (inkl. TensorRT-Initialbuild in Run1) zeigt keinen belastbaren TensorRT-Gesamtvorteil; ohne Build-Effekt (`run2` gegen `run2`) liegt TensorRT nur nahe am PyTorch-Niveau.
+- Fachlicher Hinweis aus den gemessenen Läufen: High-Level-Zähler (`candidates=2`, `accepted=1`, `rejected=1`, Keeper `Keeper #1`) bleiben gleich, aber `merged` weicht in den TensorRT-Läufen (`1`) gegenüber PyTorch (`0`) ab und verhindert aktuell eine vollständige Äquivalenzfreigabe.
+- ONNX wurde nicht als Primärpfad bewertet; ONNX-Runtime wurde nur als Ultralytics-Exportabhängigkeit im TensorRT-Exportpfad nachinstalliert.
+- Entscheidung 0.13.26: PyTorch bleibt sicherer Default. TensorRT bleibt optionaler Research-Pfad mit Fallback auf PyTorch.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.

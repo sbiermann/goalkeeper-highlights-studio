@@ -23,6 +23,7 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--config", type=Path)
     p.add_argument("--frame-stride", type=int)
     p.add_argument("--decoder", choices=["pyav", "opencv"])
+    p.add_argument("--backend", choices=["pytorch", "tensorrt", "onnx"])
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
 
@@ -231,6 +232,8 @@ def main() -> int:
         cfg["yolo"]["frame_stride"] = max(1, args.frame_stride)
     if args.decoder:
         cfg.setdefault("decoder", {})["backend"] = args.decoder
+    if args.backend:
+        cfg.setdefault("yolo", {})["backend"] = str(args.backend).strip().lower()
     original_video = video
     if args.command == "analyze" and getattr(args, "only_last_source", False):
         if not video.is_dir():
@@ -261,6 +264,7 @@ def main() -> int:
                 track_path=str(args.track_path),
                 decoder_mode=str(args.decoder_mode),
                 decoder_prefetch_queue_size=max(1, int(args.decoder_prefetch_queue_size)),
+                backend=str(args.backend),
                 ffmpeg=args.ffmpeg,
                 ffprobe=args.ffprobe,
             )

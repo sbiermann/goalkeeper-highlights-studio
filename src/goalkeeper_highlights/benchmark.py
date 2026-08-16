@@ -32,6 +32,7 @@ def _benchmark_config(
     track_path: str = "legacy",
     decoder_mode: str = "prefetch",
     decoder_prefetch_queue_size: int = 4,
+    backend: str = "pytorch",
 ) -> dict[str, Any]:
     cfg = copy.deepcopy(config)
     runtime = cfg.setdefault("runtime", {})
@@ -47,6 +48,7 @@ def _benchmark_config(
     cfg.setdefault("diagnostics", {})["enabled"] = False
     cfg.setdefault("qwen", {})["enabled"] = False
     cfg.setdefault("yolo", {})["half"] = bool(fp16)
+    cfg.setdefault("yolo", {})["backend"] = str(backend or "pytorch").strip().lower()
     return cfg
 
 
@@ -173,9 +175,21 @@ def _metrics(summary: dict[str, Any], *, start: float, duration: float, fp16: bo
         "fp16_requested": bool(summary.get("requested_fp16", fp16)),
         "fp16_effective": bool(summary.get("effective_fp16", fp16)),
         "fp16_fallback_reason": summary.get("fp16_fallback_reason"),
+        "requested_backend": str(summary.get("requested_backend", "pytorch")),
+        "effective_backend": str(summary.get("effective_backend", summary.get("requested_backend", "pytorch"))),
+        "backend_fallback_reason": summary.get("backend_fallback_reason"),
+        "model_format": str(summary.get("model_format", "pytorch")),
+        "engine_cached": bool(summary.get("engine_cached", False)),
+        "engine_build_seconds": round(_as_float(summary.get("engine_build_seconds")), 6),
+        "backend_load_seconds": round(_as_float(summary.get("backend_load_seconds")), 6),
+        "backend_warmup_seconds": round(_as_float(summary.get("backend_warmup_seconds")), 6),
         "cuda_available": bool(summary.get("cuda_available", False)),
         "device": str(summary.get("device", "")),
         "gpu": str(((summary.get("system") or {}).get("gpu", ""))),
+        "gpu_name": str(summary.get("gpu_name", "")),
+        "tensorrt_version": str(summary.get("tensorrt_version", "")),
+        "onnxruntime_version": str(summary.get("onnxruntime_version", "")),
+        "onnx_execution_provider": str(summary.get("onnx_execution_provider", "")),
         "analysis_seconds": round(analysis_seconds, 3),
         "video_seconds": round(video_seconds, 3),
         "processed_frames": processed_frames,
@@ -264,6 +278,7 @@ def run_benchmark(
     track_path: str = "optimized",
     decoder_mode: str = "legacy",
     decoder_prefetch_queue_size: int = 4,
+    backend: str = "pytorch",
     ffmpeg: str = "ffmpeg",
     ffprobe: str = "ffprobe",
 ) -> dict[str, Any]:
@@ -276,6 +291,7 @@ def run_benchmark(
         track_path=track_path,
         decoder_mode=decoder_mode,
         decoder_prefetch_queue_size=decoder_prefetch_queue_size,
+        backend=backend,
     )
     started = time.perf_counter()
     summary = run(source, output, cfg, overwrite=True, ffmpeg=ffmpeg, ffprobe=ffprobe, progress_callback=None)

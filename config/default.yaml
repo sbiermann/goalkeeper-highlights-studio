@@ -6,6 +6,7 @@ decoder:
   opencv_reopen_retries: 3
 
 yolo:
+  backend: pytorch
   model: yolo11s.pt
   tracker: bytetrack.yaml
   image_size: 1280
