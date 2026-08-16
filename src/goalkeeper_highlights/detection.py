@@ -1925,9 +1925,10 @@ class _TrackRunner:
             "iou": float(yolo["iou"]),
             "imgsz": int(yolo["image_size"]),
             "device": device,
-            "half": bool(fp16_enabled),
             "verbose": False,
         }
+        if fp16_enabled:
+            self.kwargs["half"] = True
         self._callback_accum_ms = 0.0
         self._callback_event_ms: dict[str, float] = {}
         self._callback_event_calls: dict[str, int] = {}
@@ -2193,7 +2194,20 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
 
     warmup_started = time.perf_counter()
     warmup_frame = np.zeros((max(16, int(yolo["image_size"])), max(16, int(yolo["image_size"])), 3), dtype=np.uint8)
-    _ = model.track(source=warmup_frame, persist=False, tracker=yolo["tracker"], classes=[PERSON_CLASS, SPORTS_BALL_CLASS], conf=float(yolo["confidence"]), iou=float(yolo["iou"]), imgsz=int(yolo["image_size"]), device=device, half=bool(effective_fp16), verbose=False)
+    warmup_kwargs: dict[str, Any] = {
+        "source": warmup_frame,
+        "persist": False,
+        "tracker": yolo["tracker"],
+        "classes": [PERSON_CLASS, SPORTS_BALL_CLASS],
+        "conf": float(yolo["confidence"]),
+        "iou": float(yolo["iou"]),
+        "imgsz": int(yolo["image_size"]),
+        "device": device,
+        "verbose": False,
+    }
+    if effective_fp16:
+        warmup_kwargs["half"] = True
+    _ = model.track(**warmup_kwargs)
     warmup_seconds = time.perf_counter() - warmup_started
     track_runner = _TrackRunner(
         model,

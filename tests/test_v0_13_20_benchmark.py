@@ -8,7 +8,7 @@ import torch
 
 from goalkeeper_highlights.benchmark import _benchmark_config, _compare_candidates, _compare_detections, _diff, _metrics
 from goalkeeper_highlights.cli import parser
-from goalkeeper_highlights.detection import _resolve_fp16_state, boxes_from_result, boxes_from_result_legacy
+from goalkeeper_highlights.detection import _TrackRunner, _resolve_fp16_state, boxes_from_result, boxes_from_result_legacy
 
 
 def test_v0_13_20_benchmark_cli_args() -> None:
@@ -103,6 +103,28 @@ def test_v0_13_21_fp16_cuda_guard_enabled(monkeypatch: pytest.MonkeyPatch) -> No
     effective, reason = _resolve_fp16_state("0", True)
     assert effective is True
     assert reason is None
+
+
+def test_v0_13_28_track_runner_omits_deprecated_half_in_fp32() -> None:
+    runner = _TrackRunner(
+        model=object(),
+        yolo={"tracker": "bytetrack.yaml", "confidence": 0.25, "iou": 0.45, "image_size": 640},
+        device="0",
+        fp16_enabled=False,
+        mode="legacy",
+    )
+    assert "half" not in runner.kwargs
+
+
+def test_v0_13_28_track_runner_sets_half_only_for_fp16() -> None:
+    runner = _TrackRunner(
+        model=object(),
+        yolo={"tracker": "bytetrack.yaml", "confidence": 0.25, "iou": 0.45, "image_size": 640},
+        device="0",
+        fp16_enabled=True,
+        mode="legacy",
+    )
+    assert runner.kwargs["half"] is True
 
 
 def test_v0_13_21_benchmark_metrics_precision_fields() -> None:
