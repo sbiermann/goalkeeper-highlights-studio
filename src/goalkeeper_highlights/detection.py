@@ -940,6 +940,17 @@ def _candidate_action_bounds(candidate: Candidate) -> tuple[float, float]:
     return action_start, max(action_start, action_end)
 
 
+def _candidate_relevance_score(candidate: Candidate) -> float:
+    """Generalized relevance score used for conservative weak-phase absorption."""
+    interaction = max(0.0, float(candidate.interaction_score))
+    contact = min(12.0, max(0.0, float(candidate.contact_frames))) / 12.0
+    possession = min(2.0, max(0.0, float(candidate.possession_duration))) / 2.0
+    ball_confidence = max(0.0, min(1.0, float(candidate.ball_confidence)))
+    recovery_bonus = 0.15 if (candidate.recovery_candidate or candidate.category.startswith("recovery_")) else 0.0
+    accepted_bonus = 0.10 if candidate.accepted else 0.0
+    return (interaction * 1.8) + (contact * 1.1) + (possession * 0.9) + (ball_confidence * 0.4) + recovery_bonus + accepted_bonus
+
+
 def _has_independent_restart_between(previous: Candidate, current: Candidate) -> bool:
     restart_categories = {"distribution", "keeper_clearance"}
     previous_cat = previous.category
@@ -1511,6 +1522,50 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             
             if previous.accepted and (candidate.accepted or is_continuation_candidate):
                 within_limit = (gap <= phase_gap_limit)
+
+                weak_phase_categories = {
+                    "interaction",
+                    "recovery_keeper_interaction",
+                    "recovery_uncovered_activity",
+                }
+                weak_absorb_enabled = bool(clips_cfg.get("phase_core_weak_absorption_enabled", True))
+                weak_absorb_delta = float(clips_cfg.get("phase_core_weak_absorption_delta", 0.35))
+                weak_absorb_max_action = float(clips_cfg.get("phase_core_weak_absorption_max_action_seconds", 12.0))
+                previous_score = _candidate_relevance_score(previous)
+                candidate_score = _candidate_relevance_score(candidate)
+                candidate_action_start, candidate_action_end = _candidate_action_bounds(candidate)
+                candidate_action_duration = max(0.0, candidate_action_end - candidate_action_start)
+
+                weak_phase_absorb = (
+                    weak_absorb_enabled
+                    and candidate.accepted
+                    and same_keeper
+                    and within_limit
+                    and not is_unrelated_restart
+                    and previous.clip_end_reason in {"timeout", "dynamic_idle_tail"}
+                    and candidate.clip_end_reason in {"timeout", "dynamic_idle_tail"}
+                    and candidate.category in weak_phase_categories
+                    and candidate_action_duration <= weak_absorb_max_action
+                    and candidate_score + weak_absorb_delta < previous_score
+                )
+                if weak_phase_absorb:
+                    previous.merged_from.append(candidate.candidate_id)
+                    previous.phase_merge_reason = "same_keeper_weak_phase_absorbed"
+                    candidate.continuation_absorbed = True
+                    candidate.absorbed_into_candidate_id = previous.candidate_id
+                    candidate.continuation_absorb_reason = "accepted_weak_phase_absorbed"
+                    previous.score_breakdown.update(
+                        {
+                            "phase_merge_checked": 1.0,
+                            "phase_merge_decision": 1.0,
+                            "phase_merge_weak_absorb_applied": 1.0,
+                            "phase_merge_weak_absorb_previous_score": previous_score,
+                            "phase_merge_weak_absorb_candidate_score": candidate_score,
+                            "phase_merge_weak_absorb_score_delta": previous_score - candidate_score,
+                            "phase_merge_weak_absorb_candidate_action_seconds": candidate_action_duration,
+                        }
+                    )
+                    continue
                 
                 # Intelligent duration handling
                 raw_combined_duration = candidate.end - previous.start
@@ -1591,6 +1646,114 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             final_clips.append(candidate)
         
     final_clips = merge_overlapping_final_clips(final_clips, duration, clips_cfg)
+
+    isolated_dynamic_tail = max(0.0, float(clips_cfg.get("catch_control_isolated_dynamic_idle_tail_seconds", 3.0)))
+    merged_dynamic_tail_cap = max(6.0, float(clips_cfg.get("catch_control_merged_phase_max_seconds", 18.0)))
+    single_merge_dynamic_tail = max(0.5, float(clips_cfg.get("catch_control_single_merge_dynamic_tail_seconds", 4.0)))
+    single_merge_pre_roll_cap = max(0.0, float(clips_cfg.get("catch_control_single_merge_pre_roll_seconds", 3.0)))
+    controlled_release_long_phase_min_action = max(1.0, float(clips_cfg.get("catch_control_controlled_release_long_phase_min_action_seconds", 40.0)))
+    controlled_release_trailing_window = max(6.0, float(clips_cfg.get("catch_control_controlled_release_trailing_core_seconds", 24.0)))
+    controlled_release_trailing_tail = max(0.0, float(clips_cfg.get("catch_control_controlled_release_trailing_tail_seconds", 5.0)))
+    phase_min_pre_roll = float(clips_cfg.get("phase_merge_min_pre_roll_seconds", 2.0))
+    for candidate in final_clips:
+        if (
+            candidate.accepted
+            and candidate.category == "catch_or_control"
+            and candidate.clip_end_reason == "dynamic_idle_tail"
+            and len(candidate.merged_from) >= 2
+        ):
+            capped_end = min(duration, candidate.start + merged_dynamic_tail_cap)
+            if capped_end < candidate.end:
+                candidate.end = capped_end
+                candidate.clip_boundary_reason = "merged_action_core"
+                candidate.score_breakdown.update(
+                    {
+                        "catch_control_merged_core_trim_applied": 1.0,
+                        "catch_control_merged_core_max_seconds": merged_dynamic_tail_cap,
+                        "catch_control_merged_core_effective_end": candidate.end,
+                    }
+                )
+
+        if (
+            candidate.accepted
+            and candidate.category == "catch_or_control"
+            and candidate.clip_end_reason == "dynamic_idle_tail"
+            and len(candidate.merged_from) == 1
+            and candidate.phase_merge_reason == "same_keeper_weak_phase_absorbed"
+            and float(candidate.score_breakdown.get("phase_merge_action_duration", 0.0)) >= 12.0
+            and "catch_control_last_activity_time" in candidate.score_breakdown
+        ):
+            last_activity = float(
+                candidate.score_breakdown.get(
+                    "catch_control_last_activity_time",
+                    candidate.action_end or candidate.trigger_time,
+                )
+            )
+            trimmed_end = min(candidate.end, min(duration, last_activity + single_merge_dynamic_tail))
+            action_start = candidate.action_start or candidate.trigger_time
+            trimmed_start = max(candidate.start, action_start - single_merge_pre_roll_cap)
+            if trimmed_start > candidate.start:
+                candidate.start = trimmed_start
+            if trimmed_end < candidate.end:
+                candidate.end = max(candidate.start, trimmed_end)
+            if trimmed_start > candidate.start or trimmed_end < candidate.end:
+                candidate.clip_boundary_reason = "single_merge_action_core"
+                candidate.score_breakdown.update(
+                    {
+                        "catch_control_single_merge_core_applied": 1.0,
+                        "catch_control_single_merge_core_tail_seconds": single_merge_dynamic_tail,
+                        "catch_control_single_merge_core_pre_roll_seconds": single_merge_pre_roll_cap,
+                        "catch_control_single_merge_core_effective_start": candidate.start,
+                        "catch_control_single_merge_core_effective_end": candidate.end,
+                    }
+                )
+
+        if (
+            candidate.accepted
+            and candidate.category == "catch_or_control"
+            and candidate.clip_end_reason == "controlled_release"
+            and bool(candidate.merged_from)
+        ):
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            phase_action_duration = float(candidate.score_breakdown.get("phase_merge_action_duration", 0.0))
+            effective_pre_roll = float(candidate.score_breakdown.get("phase_merge_effective_pre_roll", 0.0))
+            if phase_action_duration >= controlled_release_long_phase_min_action and effective_pre_roll <= phase_min_pre_roll + 1e-6:
+                trailing_start = max(0.0, action_end - controlled_release_trailing_window)
+                trailing_end = min(duration, action_end + controlled_release_trailing_tail)
+                if trailing_start > candidate.start:
+                    candidate.start = trailing_start
+                if trailing_end > candidate.end:
+                    candidate.end = trailing_end
+                candidate.clip_boundary_reason = "controlled_release_trailing_core"
+                candidate.score_breakdown.update(
+                    {
+                        "catch_control_controlled_release_core_applied": 1.0,
+                        "catch_control_controlled_release_core_window": controlled_release_trailing_window,
+                        "catch_control_controlled_release_core_tail": controlled_release_trailing_tail,
+                        "catch_control_controlled_release_core_effective_start": candidate.start,
+                        "catch_control_controlled_release_core_effective_end": candidate.end,
+                    }
+                )
+
+        if (
+            candidate.accepted
+            and candidate.category == "catch_or_control"
+            and candidate.clip_end_reason == "dynamic_idle_tail"
+            and not candidate.merged_from
+        ):
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            core_end = min(duration, action_end + isolated_dynamic_tail)
+            if core_end < candidate.end:
+                candidate.end = max(action_end, core_end)
+                candidate.clip_boundary_reason = "isolated_action_core"
+                candidate.score_breakdown.update(
+                    {
+                        "catch_control_isolated_core_trim_applied": 1.0,
+                        "catch_control_isolated_core_tail_seconds": isolated_dynamic_tail,
+                        "catch_control_isolated_core_effective_end": candidate.end,
+                    }
+                )
+
     return final_clips
 
 

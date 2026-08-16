@@ -9,6 +9,11 @@ def test_cli_accepts_only_last_source():
     assert args.only_last_source is True
 
 
+def test_cli_accepts_analyze_duration():
+    args = parser().parse_args(["analyze", "videos", "--duration", "625"])
+    assert args.duration == 625.0
+
+
 def test_natural_last_source_selection(tmp_path: Path):
     for name in ["MatchTeil22.mp4", "MatchTeil1.mp4", "MatchTeil21.mp4"]:
         (tmp_path / name).write_bytes(b"")

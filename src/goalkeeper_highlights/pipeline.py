@@ -20,7 +20,16 @@ from .video import concatenate, cut_virtual_clip, require_tool, resolve_encoder,
 ProgressCallback = Callable[[float, str], None]
 
 
-def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe", progress_callback: ProgressCallback | None = None) -> dict[str, object]:
+def run(
+    source: Path,
+    output: Path,
+    config: dict,
+    overwrite: bool,
+    ffmpeg: str = "ffmpeg",
+    ffprobe: str = "ffprobe",
+    progress_callback: ProgressCallback | None = None,
+    analysis_duration_seconds: float | None = None,
+) -> dict[str, object]:
     verbose = bool(config.get("runtime", {}).get("verbose_console", False))
     set_verbose(verbose)
     require_tool(ffmpeg)
@@ -47,6 +56,8 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
         source_manifest = prepare_source_timeline(source, output, ffmpeg, ffprobe, overwrite, progress_callback)
         analysis_video = source_manifest
         duration = source_manifest.total_duration_seconds
+        if analysis_duration_seconds is not None:
+            duration = max(0.1, min(duration, float(analysis_duration_seconds)))
         if verbose:
             print(f"Source: {source}\nFiles: {len(source_manifest.files)}\nDuration: {duration/60:.1f} minutes")
         detection_started = time.perf_counter()

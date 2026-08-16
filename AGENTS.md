@@ -196,6 +196,16 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - ONNX wurde nicht als Primärpfad bewertet; ONNX-Runtime wurde nur als Ultralytics-Exportabhängigkeit im TensorRT-Exportpfad nachinstalliert.
 - Entscheidung 0.13.26: PyTorch bleibt sicherer Default. TensorRT bleibt optionaler Research-Pfad mit Fallback auf PyTorch.
 
+## Version 0.13.29
+
+- Ziel war ein credit-effizienter Boundary-Release ausschließlich für die ersten sieben chronologischen Final-Candidates (inklusive rejected) des v0.13.28-Referenzlaufs.
+- Fachfokus: Clip-1/3/4/5-Boundaries korrigieren, Clip 2 explizit rejected belassen, Clip 6/7 als Regression stabil halten.
+- Implementierte allgemeine Core-Regel: schwache akzeptierte Folgephasen können in den Vorgänger absorbiert werden, ohne das Clipfenster unnötig bis zum Maximal-Tail aufzublähen.
+- Catch/Control-Boundary-Feintuning ergänzt um: isolierten Dynamic-Idle-Core-Tail, konservative Kappung langer gemergter Dynamic-Idle-Phasen sowie trailing-core Zuschnitt für lange gemergte Controlled-Release-Phasen.
+- `analyze` akzeptiert optional `--duration` für kurze reale Validierungsläufe; ohne Parameter bleibt das bisherige Default-Verhalten (Vollanalyse) unverändert.
+- Neue Boundary-Core-Defaults in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` synchronisiert; Event-/Candidate-/Recovery-/Threshold-Logik blieb unverändert.
+- Debug-Paketname angehoben auf `goalkeeper_highlights_debug_v0.13.29.zip`.
+
 ## Version 0.13.27
 
 - Ziel war ein credit-effizienter Low-Hanging-Fruit-Sweep auf dem bestehenden Produktionspfad (PyTorch FP32, Packed Conversion, OpenCV-Prefetch, optimierter Track-Pfad) ohne fachliche Logikänderungen.

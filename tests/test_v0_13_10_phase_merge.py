@@ -139,6 +139,107 @@ def test_different_keepers_no_merge():
     results = extend_and_chain_clip_windows([c1, c2], 500.0, {"max_dynamic_clip_seconds": 45.0, "interaction_validation": {"enabled": False}, "continuation_gap_seconds": 12.0})
     assert len(results) == 2
 
+
+def test_accepted_weak_phase_is_absorbed_without_boundary_extension():
+    primary = Candidate(
+        candidate_id="raw-a",
+        start=88.0,
+        end=109.0,
+        trigger_time=95.0,
+        action_start=95.0,
+        action_end=102.0,
+        accepted=True,
+        category="catch_or_control",
+        keeper_label="Keeper #1",
+        clip_end_reason="dynamic_idle_tail",
+        interaction_score=0.62,
+        contact_frames=12,
+        possession_duration=1.4,
+        ball_confidence=0.82,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+    )
+    weak_followup = Candidate(
+        candidate_id="raw-b",
+        start=103.0,
+        end=120.0,
+        trigger_time=106.0,
+        action_start=106.0,
+        action_end=110.0,
+        accepted=True,
+        category="interaction",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        interaction_score=0.11,
+        contact_frames=2,
+        possession_duration=0.10,
+        ball_confidence=0.21,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+    )
+    clips_cfg = {
+        "interaction_validation": {"enabled": False},
+        "max_dynamic_clip_seconds": 45.0,
+        "phase_merge_gap_seconds": 30.0,
+        "continuation_gap_seconds": 1.0,
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0, "interaction": 5.0},
+        "category_post_roll_seconds": {"catch_or_control": 11.0, "interaction": 8.0},
+        "phase_core_weak_absorption_enabled": True,
+        "phase_core_weak_absorption_delta": 0.35,
+        "phase_core_weak_absorption_max_action_seconds": 12.0,
+    }
+
+    results = extend_and_chain_clip_windows([primary, weak_followup], 500.0, clips_cfg)
+
+    assert len(results) == 1
+    merged = results[0]
+    assert merged.candidate_id == "raw-a"
+    assert "raw-b" in merged.merged_from
+    assert merged.start == pytest.approx(85.0)
+    assert merged.end == pytest.approx(113.0)
+    assert merged.phase_merge_reason == "same_keeper_weak_phase_absorbed"
+
+
+def test_isolated_catch_or_control_gets_core_trimmed_tail():
+    candidate = Candidate(
+        candidate_id="raw-c",
+        start=273.76,
+        end=294.84,
+        trigger_time=283.76,
+        action_start=283.76,
+        action_end=287.84,
+        accepted=True,
+        category="catch_or_control",
+        keeper_label="Keeper #1",
+        clip_end_reason="dynamic_idle_tail",
+        interaction_score=0.58,
+        contact_frames=12,
+        possession_duration=1.2,
+        ball_confidence=0.7,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+    )
+    clips_cfg = {
+        "interaction_validation": {"enabled": False},
+        "max_dynamic_clip_seconds": 45.0,
+        "continuation_gap_seconds": 12.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0},
+        "category_post_roll_seconds": {"catch_or_control": 11.0},
+        "catch_control_dynamic_post_roll_enabled": False,
+        "catch_control_isolated_dynamic_idle_tail_seconds": 1.0,
+    }
+
+    results = extend_and_chain_clip_windows([candidate], 500.0, clips_cfg)
+
+    assert len(results) == 1
+    trimmed = results[0]
+    assert trimmed.start == pytest.approx(273.76)
+    assert trimmed.end == pytest.approx(288.84)
+    assert trimmed.clip_boundary_reason == "isolated_action_core"
+    assert trimmed.score_breakdown.get("catch_control_isolated_core_trim_applied") == pytest.approx(1.0)
+
 def test_action_too_long_no_merge():
     # Action span is 200 to 250 = 50s. Max is 45s.
     c1 = Candidate(

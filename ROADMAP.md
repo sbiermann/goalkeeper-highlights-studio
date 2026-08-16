@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.28, focused on benchmark-reproducibility hardening and a single low-effort hotspot screening on the existing PyTorch FP32 path without event/candidate logic changes.
+Current stabilization release: 0.13.29, focused on a credit-efficient boundary correction pass for the first seven chronological final candidates with unchanged event/candidate/recovery threshold semantics.
 
 # Roadmap
 
@@ -8,6 +8,11 @@ Current stabilization release: 0.13.28, focused on benchmark-reproducibility har
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.29 is completed as a credit-efficient boundary-fix release for clips 1–7 with a short real-run validation window (`--duration 625`).
+- 0.13.29 outcome: clip boundaries for the first block were corrected via generalizable core-selection rules; clip 2 remains rejected; clips 6/7 remain regression-stable.
+- `analyze` now accepts optional `--duration` for bounded real validations; default full-length analysis remains unchanged.
+- Decision for 0.13.29: no performance optimization work; PyTorch FP32 + prefetch + packed + current track path remain unchanged.
+- Recommendation for 0.13.30: continue quality-focused boundary validation on broader real samples only after locking the new 0.13.29 baseline.
 - Version 0.13.28 is completed as a credit-efficient reproducibility and hotspot-screening release.
 - Benchmark runs now force non-interactive keeper selection to avoid user-click waiting-time skew; keeper selection metadata is exposed via `keeper_selection_mode` and `keeper_selection_timed`.
 - Analysis timing now excludes interactive keeper waiting-time via `interactive_wait_seconds`, so `analysis_seconds`/`realtime_factor` remain benchmark-clean.

@@ -1,3 +1,12 @@
+## 0.13.29
+- Credit-effiziente Boundary-Korrektur nur für den ersten chronologischen Block (finale Clips 1–7 inkl. rejected) mit unveränderter Event-/Threshold-/Recovery-Grundlogik.
+- Neuer allgemeiner Core-Ansatz in der finalen Clip-Planung: schwache akzeptierte Folgephasen können absorbiert werden, ohne den starken Action-Core unnötig auf volle 45s aufzublähen.
+- Catch/Control-Boundaries verfeinert: isolierte Dynamic-Idle-Fälle werden auf einen kurzen Activity-Tail begrenzt; lange gemergte Dynamic-Idle-Phasen erhalten eine konservative Core-Kappung.
+- Für lange gemergte `catch_or_control`-Phasen mit `controlled_release` wird ein trailing-core Zuschnitt verwendet, damit relevanter später Aktionsanteil erhalten bleibt und irrelevanter früher Kontext reduziert wird.
+- `analyze` unterstützt jetzt optional `--duration`, um kurze reale Validierungsläufe (z.B. 0–625s) ohne Änderung des Default-Verhaltens (volle Analyse) auszuführen.
+- Default-Konfiguration in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` synchron um die neuen Boundary-Core-Parameter erweitert.
+- Relevante Regressionen ergänzt/aktualisiert (Boundary-Phase-Merge + Analyze-CLI-Duration); Debug-Archivname angehoben auf `goalkeeper_highlights_debug_v0.13.29.zip`.
+
 ## 0.13.28
 - Benchmark-Reproduzierbarkeit verbessert: Benchmark-Läufe erzwingen nun standardmäßig eine nicht-interaktive Keeper-Auswahl (`runtime.benchmark_force_noninteractive_keeper_selection=true`), damit manuelle Klick-Wartezeit Performance-Messungen nicht verfälscht.
 - Analyse-Timing bereinigt: Interaktive Keeper-Wartezeit wird separat erfasst (`interactive_wait_seconds`) und aus `analysis_seconds`/`realtime_factor` herausgerechnet.

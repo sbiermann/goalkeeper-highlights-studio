@@ -46,6 +46,7 @@ def parser() -> argparse.ArgumentParser:
     analyze.add_argument("--parallel-jobs", type=int, help="Number of parallel FFmpeg clip jobs")
     analyze.add_argument("--verbose", action="store_true", help="Show detailed detector, profiler and FFmpeg output")
     analyze.add_argument("--only-last-source", action="store_true", help="When VIDEO is a directory, analyze only the naturally sorted final source file")
+    analyze.add_argument("--duration", type=float, help="Analyze only the first N seconds (default: full source)")
 
     benchmark = sub.add_parser("benchmark", help="Run short, reproducible performance benchmark without clip export")
     _common(benchmark)
@@ -312,7 +313,16 @@ def main() -> int:
             terminal_progress = None if args.verbose else TerminalProgress()
             progress = terminal_progress.update if terminal_progress else None
             try:
-                summary = run(video, output, cfg, args.overwrite, args.ffmpeg, args.ffprobe, progress_callback=progress)
+                summary = run(
+                    video,
+                    output,
+                    cfg,
+                    args.overwrite,
+                    args.ffmpeg,
+                    args.ffprobe,
+                    progress_callback=progress,
+                    analysis_duration_seconds=max(0.1, float(args.duration)) if args.duration is not None else None,
+                )
             finally:
                 if terminal_progress is not None:
                     terminal_progress.close()

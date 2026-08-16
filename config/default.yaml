@@ -162,6 +162,13 @@ clips:
   catch_control_high_min_possession_seconds: 1.0
   catch_control_high_min_interaction_score: 0.45
   catch_control_max_post_roll_seconds: 11.0
+  catch_control_isolated_dynamic_idle_tail_seconds: 1.0
+  catch_control_merged_phase_max_seconds: 18.0
+  catch_control_single_merge_dynamic_tail_seconds: 4.0
+  catch_control_single_merge_pre_roll_seconds: 3.0
+  catch_control_controlled_release_long_phase_min_action_seconds: 40.0
+  catch_control_controlled_release_trailing_core_seconds: 24.0
+  catch_control_controlled_release_trailing_tail_seconds: 5.0
   # A file change is treated as an edit/half-time boundary unless explicitly
   # enabled. This prevents the last second of one half leaking into the next.
   allow_cross_source_clips: false
