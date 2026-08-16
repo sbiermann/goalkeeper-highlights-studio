@@ -1,3 +1,11 @@
+## 0.13.27
+- Low-Hanging-Fruit Performance Sweep auf dem bestehenden Produktionspfad (PyTorch FP32 + Packed + OpenCV-Prefetch + optimierter Track-Pfad), ohne Änderungen an Event-/Candidate-/Boundary-/Recovery-/Threshold-Logik.
+- Neue schlanke Benchmark-Schalter für gezielte A/B-Läufe: `--tf32/--no-tf32`, `--cudnn-benchmark/--no-cudnn-benchmark`, `--imgsz`.
+- 60s-Screening (`start=0`, `duration=60`, `frame_stride=2`): `tf32` `+7.40%`, `cudnn_benchmark` `-7.92%` (verworfen), `imgsz=576` `+34.91%`, `imgsz=512` `+38.48%`.
+- 120s-Bestätigung (`start=0`, `duration=120`): Baseline `68.55s`/`21.90 FPS`; `tf32` `66.28s`/`22.64 FPS` (`+3.31%`, unter Default-Schwelle); `imgsz=576` und `imgsz=512` liefern Candidate-Abweichungen und wurden trotz Speedup verworfen.
+- Teil22-Fachvalidierung (`FCWittlinen-SFETeil22-Tonasync.mp4`, `start=540`, `duration=220`) für `tf32`: Baseline `4/3/1`, `tf32` `4/3/1` (candidates/accepted/rejected), Keeper `Keeper #1` identisch.
+- Entscheidung 0.13.27: Kein neuer Default. PyTorch-FP32-Produktionspfad und bestehende `image_size` bleiben unverändert; TF32 bleibt optionaler Benchmark-/Runtime-Schalter.
+
 ## 0.13.26
 - Isolierter Backend-Research-Release für YOLO-Inference (`yolo.backend`: `pytorch|tensorrt|onnx`) bei unveränderter Event-/Candidate-/Boundary-/Recovery-/Threshold-Logik.
 - Neue Backend-Diagnostik in Benchmark/Reports: `requested_backend`, `effective_backend`, `backend_fallback_reason`, `model_format`, `engine_cached`, `engine_build_seconds`, `backend_load_seconds`, `backend_warmup_seconds`.

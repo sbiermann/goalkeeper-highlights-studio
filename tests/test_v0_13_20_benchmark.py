@@ -12,7 +12,23 @@ from goalkeeper_highlights.detection import _resolve_fp16_state, boxes_from_resu
 
 
 def test_v0_13_20_benchmark_cli_args() -> None:
-    args = parser().parse_args(["benchmark", "video.mp4", "--duration", "300", "--start", "30", "--fp16", "--backend", "tensorrt"])
+    args = parser().parse_args(
+        [
+            "benchmark",
+            "video.mp4",
+            "--duration",
+            "300",
+            "--start",
+            "30",
+            "--fp16",
+            "--backend",
+            "tensorrt",
+            "--imgsz",
+            "576",
+            "--tf32",
+            "--cudnn-benchmark",
+        ]
+    )
     assert args.command == "benchmark"
     assert args.duration == 300.0
     assert args.start == 30.0
@@ -21,6 +37,9 @@ def test_v0_13_20_benchmark_cli_args() -> None:
     assert args.decoder_mode == "prefetch"
     assert args.decoder_prefetch_queue_size == 4
     assert args.backend == "tensorrt"
+    assert args.imgsz == 576
+    assert args.tf32 is True
+    assert args.cudnn_benchmark is True
 
 
 def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
@@ -30,6 +49,9 @@ def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
         duration_seconds=300.0,
         fp16=False,
         backend="onnx",
+        image_size=512,
+        tf32=True,
+        cudnn_benchmark=True,
     )
     assert cfg["runtime"]["benchmark_mode"] is True
     assert cfg["runtime"]["export_rejected"] is False
@@ -38,7 +60,10 @@ def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
     assert cfg["runtime"]["track_execution_mode"] == "legacy"
     assert cfg["runtime"]["decoder_execution_mode"] == "prefetch"
     assert cfg["runtime"]["decoder_prefetch_queue_size"] == 4
+    assert cfg["runtime"]["tf32"] is True
+    assert cfg["runtime"]["cudnn_benchmark"] is True
     assert cfg["yolo"]["backend"] == "onnx"
+    assert cfg["yolo"]["image_size"] == 512
 
 
 def test_v0_13_22_benchmark_track_path_override() -> None:

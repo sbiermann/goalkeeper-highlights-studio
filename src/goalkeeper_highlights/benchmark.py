@@ -33,6 +33,9 @@ def _benchmark_config(
     decoder_mode: str = "prefetch",
     decoder_prefetch_queue_size: int = 4,
     backend: str = "pytorch",
+    image_size: int | None = None,
+    tf32: bool | None = None,
+    cudnn_benchmark: bool | None = None,
 ) -> dict[str, Any]:
     cfg = copy.deepcopy(config)
     runtime = cfg.setdefault("runtime", {})
@@ -49,6 +52,12 @@ def _benchmark_config(
     cfg.setdefault("qwen", {})["enabled"] = False
     cfg.setdefault("yolo", {})["half"] = bool(fp16)
     cfg.setdefault("yolo", {})["backend"] = str(backend or "pytorch").strip().lower()
+    if image_size is not None:
+        cfg.setdefault("yolo", {})["image_size"] = max(64, int(image_size))
+    if tf32 is not None:
+        runtime["tf32"] = bool(tf32)
+    if cudnn_benchmark is not None:
+        runtime["cudnn_benchmark"] = bool(cudnn_benchmark)
     return cfg
 
 
@@ -279,6 +288,9 @@ def run_benchmark(
     decoder_mode: str = "legacy",
     decoder_prefetch_queue_size: int = 4,
     backend: str = "pytorch",
+    image_size: int | None = None,
+    tf32: bool | None = None,
+    cudnn_benchmark: bool | None = None,
     ffmpeg: str = "ffmpeg",
     ffprobe: str = "ffprobe",
 ) -> dict[str, Any]:
@@ -292,6 +304,9 @@ def run_benchmark(
         decoder_mode=decoder_mode,
         decoder_prefetch_queue_size=decoder_prefetch_queue_size,
         backend=backend,
+        image_size=image_size,
+        tf32=tf32,
+        cudnn_benchmark=cudnn_benchmark,
     )
     started = time.perf_counter()
     summary = run(source, output, cfg, overwrite=True, ffmpeg=ffmpeg, ffprobe=ffprobe, progress_callback=None)

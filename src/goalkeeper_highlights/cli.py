@@ -56,6 +56,9 @@ def parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--track-path", choices=["legacy", "optimized"], default="legacy", help="Select model.track execution path for overhead A/B")
     benchmark.add_argument("--decoder-mode", choices=["legacy", "prefetch"], default="prefetch", help="Select OpenCV decoder execution mode for A/B benchmark")
     benchmark.add_argument("--decoder-prefetch-queue-size", type=int, default=4, help="Bounded queue size for decoder prefetch mode")
+    benchmark.add_argument("--imgsz", type=int, help="Override YOLO inference image size for benchmark run")
+    benchmark.add_argument("--tf32", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable TF32 matmul path for benchmark run")
+    benchmark.add_argument("--cudnn-benchmark", action=argparse.BooleanOptionalAction, default=None, help="Enable/disable cuDNN benchmark for benchmark run")
     benchmark.add_argument("--ffmpeg", default="ffmpeg")
     benchmark.add_argument("--ffprobe", default="ffprobe")
     return p
@@ -265,6 +268,9 @@ def main() -> int:
                 decoder_mode=str(args.decoder_mode),
                 decoder_prefetch_queue_size=max(1, int(args.decoder_prefetch_queue_size)),
                 backend=str(args.backend),
+                image_size=int(args.imgsz) if args.imgsz else None,
+                tf32=args.tf32,
+                cudnn_benchmark=args.cudnn_benchmark,
                 ffmpeg=args.ffmpeg,
                 ffprobe=args.ffprobe,
             )

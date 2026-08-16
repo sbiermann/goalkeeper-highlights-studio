@@ -2076,6 +2076,19 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     requested_precision = "FP16" if requested_fp16 else "FP32"
     effective_precision = "FP16" if effective_fp16 else "FP32"
     cuda_available = bool(torch.cuda.is_available())
+    requested_tf32 = runtime.get("tf32")
+    requested_cudnn_benchmark = runtime.get("cudnn_benchmark")
+    tf32_enabled = bool(getattr(torch.backends.cuda.matmul, "allow_tf32", False)) if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul") else False
+    cudnn_benchmark_enabled = bool(getattr(torch.backends.cudnn, "benchmark", False)) if hasattr(torch.backends, "cudnn") else False
+    if requested_tf32 is not None:
+        tf32_enabled = bool(requested_tf32)
+        if hasattr(torch.backends, "cuda") and hasattr(torch.backends.cuda, "matmul"):
+            torch.backends.cuda.matmul.allow_tf32 = bool(tf32_enabled)
+        if hasattr(torch.backends, "cudnn"):
+            torch.backends.cudnn.allow_tf32 = bool(tf32_enabled)
+    if requested_cudnn_benchmark is not None and hasattr(torch.backends, "cudnn"):
+        cudnn_benchmark_enabled = bool(requested_cudnn_benchmark)
+        torch.backends.cudnn.benchmark = bool(cudnn_benchmark_enabled)
     track_execution_mode = str(runtime.get("track_execution_mode", "legacy")).strip().lower()
     if track_execution_mode not in {"legacy", "optimized"}:
         track_execution_mode = "legacy"
@@ -2600,6 +2613,10 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "fp16_fallback_reason": fp16_fallback_reason,
                 "requested_precision": requested_precision,
                 "effective_precision": effective_precision,
+                "requested_tf32": requested_tf32,
+                "effective_tf32": bool(tf32_enabled),
+                "requested_cudnn_benchmark": requested_cudnn_benchmark,
+                "effective_cudnn_benchmark": bool(cudnn_benchmark_enabled),
                 "requested_backend": requested_backend,
                 "effective_backend": effective_backend,
                 "backend_fallback_reason": backend_fallback_reason,
@@ -2691,6 +2708,10 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "fp16_fallback_reason": fp16_fallback_reason,
                 "requested_precision": requested_precision,
                 "effective_precision": effective_precision,
+                "requested_tf32": requested_tf32,
+                "effective_tf32": bool(tf32_enabled),
+                "requested_cudnn_benchmark": requested_cudnn_benchmark,
+                "effective_cudnn_benchmark": bool(cudnn_benchmark_enabled),
                 "requested_backend": requested_backend,
                 "effective_backend": effective_backend,
                 "backend_fallback_reason": backend_fallback_reason,

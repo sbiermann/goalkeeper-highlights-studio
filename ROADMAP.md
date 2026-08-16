@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.26, focused on isolated YOLO backend A/B research (PyTorch FP32 vs TensorRT FP32) with explicit fallback diagnostics and no event/candidate logic changes.
+Current stabilization release: 0.13.27, focused on a low-hanging-fruit performance sweep (TF32, cuDNN benchmark, imgsz variants) on the existing PyTorch FP32 path without event/candidate logic changes.
 
 # Roadmap
 
@@ -8,6 +8,11 @@ Current stabilization release: 0.13.26, focused on isolated YOLO backend A/B res
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.27 is completed as a constrained low-effort sweep on the established FP32/Packed/Prefetch path.
+- Screening/confirmation outcome: `tf32` gave a small speedup but remained below the 5% default threshold on 120s; `cudnn_benchmark` was slower; `imgsz=576` and `imgsz=512` were faster but not functionally equivalent (candidate-count deltas).
+- Event-rich Teil22 validation (`start=540`, `duration=220`) confirms functional equivalence for `tf32` (`4/3/1` vs `4/3/1`, keeper unchanged), but default criteria were still not met.
+- Decision for 0.13.27: keep current production defaults unchanged (PyTorch FP32, existing baseline `image_size`, packed conversion, OpenCV prefetch, optimized track path).
+- Recommendation for 0.13.28: target detection-quality-preserving acceleration around model input handling with stricter ball-sensitivity guards before considering any imgsz default change.
 - Version 0.13.26 is completed as an isolated backend research release: `yolo.backend` (`pytorch|tensorrt|onnx`) was added with explicit `requested_backend`/`effective_backend`/`backend_fallback_reason` diagnostics.
 - Version 0.13.26 completed real serial FP32 runs on the 120s reference segment (`pytorch_run1`, `tensorrt_run1`, `pytorch_run2`, `tensorrt_run2`); TensorRT was only counted as TensorRT where `effective_backend=tensorrt`.
 - Version 0.13.26 confirms engine-cache separation (`engine_build_seconds` vs `analysis_seconds`) and stable PyTorch fallback behavior when backend requirements are unavailable.

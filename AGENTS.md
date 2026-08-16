@@ -196,6 +196,22 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - ONNX wurde nicht als Primärpfad bewertet; ONNX-Runtime wurde nur als Ultralytics-Exportabhängigkeit im TensorRT-Exportpfad nachinstalliert.
 - Entscheidung 0.13.26: PyTorch bleibt sicherer Default. TensorRT bleibt optionaler Research-Pfad mit Fallback auf PyTorch.
 
+## Version 0.13.27
+
+- Ziel war ein credit-effizienter Low-Hanging-Fruit-Sweep auf dem bestehenden Produktionspfad (PyTorch FP32, Packed Conversion, OpenCV-Prefetch, optimierter Track-Pfad) ohne fachliche Logikänderungen.
+- Untersuchte Kandidaten: `TF32`, `torch.backends.cudnn.benchmark`, `imgsz=576`, `imgsz=512`.
+- Implementiert wurden nur kleine Benchmark-/Runtime-Schalter: `--tf32`, `--cudnn-benchmark`, `--imgsz`.
+- 60s-Screening (`FCWittlinge-SFETeil1.MP4`, `start=0`, `duration=60`, `frame_stride=2`):
+  - Baseline `42.07s`, `17.85 FPS`
+  - `TF32`: `38.96s`, `19.28 FPS` (`+7.40%`)
+  - `cuDNN benchmark`: `45.40s`, `16.54 FPS` (`-7.92%`, verworfen)
+  - `imgsz=576`: `27.39s`, `27.42 FPS` (`+34.91%`)
+  - `imgsz=512`: `25.88s`, `29.02 FPS` (`+38.48%`)
+- 120s-Bestätigung (`start=0`, `duration=120`): Baseline `68.55s`, `21.90 FPS`; `TF32` `66.28s`, `22.64 FPS` (`+3.31%`), `imgsz=576` (`1/1/0`) und `imgsz=512` (`0/0/0`) mit Candidate-Abweichungen gegenüber Baseline (`2/1/1`) verworfen.
+- Teil22-Fachvalidierung für verbleibenden Kandidaten `TF32` (`FCWittlinen-SFETeil22-Tonasync.mp4`, `start=540`, `duration=220`): Baseline und `TF32` beide `candidates=4`, `accepted=3`, `rejected=1`, Keeper `Keeper #1`.
+- Entscheidung 0.13.27: kein Default-Wechsel, da einzig fachlich stabiler Kandidat (`TF32`) auf 120s unter der Übernahmeschwelle blieb; Baseline-`image_size` und sonstiger Produktionspfad bleiben unverändert.
+- Fachliche Invarianten bestätigt: keine Änderungen an Detection-Thresholds, Tracking-Parametern, Event-/Candidate-/Boundary-/Recovery-Logik.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.
