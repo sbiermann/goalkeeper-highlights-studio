@@ -212,6 +212,16 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Entscheidung 0.13.27: kein Default-Wechsel, da einzig fachlich stabiler Kandidat (`TF32`) auf 120s unter der Übernahmeschwelle blieb; Baseline-`image_size` und sonstiger Produktionspfad bleiben unverändert.
 - Fachliche Invarianten bestätigt: keine Änderungen an Detection-Thresholds, Tracking-Parametern, Event-/Candidate-/Boundary-/Recovery-Logik.
 
+## Version 0.13.28
+
+- Ziel war ein credit-effizienter Release für Benchmark-Reproduzierbarkeit plus genau ein kurzer Hotspot-Screening-Lauf ohne fachliche Logikänderungen.
+- Benchmark-Läufe erzwingen standardmäßig nicht-interaktive Keeper-Auswahl über `runtime.benchmark_force_noninteractive_keeper_selection=true`, damit manuelle Klick-Wartezeit A/B-Messungen nicht verfälscht.
+- Interaktive Keeper-Wartezeit wird separat erfasst (`interactive_wait_seconds`) und aus `analysis_seconds`/`realtime_factor` herausgerechnet.
+- Benchmark-Metadaten wurden kompakt erweitert um `keeper_selection_mode` und `keeper_selection_timed`.
+- 60s-Screening auf Produktionspfad (`FCWittlinge-SFETeil1.MP4`, `start=0`, `duration=60`, `frame_stride=2`, `decoder=opencv`, `decoder_execution_mode=prefetch`, `precision=FP32`, `boxes_from_result_mode=packed`, bestehende `image_size`) ergab `analysis_seconds=43.879` und `processed_fps=17.115`.
+- Hotspot-Ranking bestätigt weiterhin `model.track`/Framework als dominanten Block; Input-Handling-nahe Blöcke (`yolo_preprocess_ms`, `boxes_from_result_ms`) zeigen in diesem Stand keinen einfachen lokal umsetzbaren >=5%-Hebel.
+- Entscheidung 0.13.28: kein neuer Performance-Default; Thresholds, Tracking-Semantik sowie Event-/Candidate-/Boundary-/Recovery-Logik bleiben unverändert.
+
 ## v0.13.8 invariants
 
 - Keeper bootstrap ranks logical identities, not isolated ByteTrack IDs.

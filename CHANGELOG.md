@@ -1,3 +1,11 @@
+## 0.13.28
+- Benchmark-Reproduzierbarkeit verbessert: Benchmark-Läufe erzwingen nun standardmäßig eine nicht-interaktive Keeper-Auswahl (`runtime.benchmark_force_noninteractive_keeper_selection=true`), damit manuelle Klick-Wartezeit Performance-Messungen nicht verfälscht.
+- Analyse-Timing bereinigt: Interaktive Keeper-Wartezeit wird separat erfasst (`interactive_wait_seconds`) und aus `analysis_seconds`/`realtime_factor` herausgerechnet.
+- Kompakte Benchmark-Metadaten erweitert um `keeper_selection_mode` und `keeper_selection_timed` für reproduzierbare A/B-Dokumentation.
+- Isoliertes 60s-Screening auf Produktionspfad durchgeführt (`start=0`, `duration=60`, `frame_stride=2`, OpenCV+Prefetch, FP32, Packed, bestehende `image_size`): `analysis_seconds=43.879`, `processed_fps=17.115`.
+- Hotspot-Befund: dominanter verbleibender Block bleibt `model_track_wall_ms`; Input-Handling-nahe Anteile (`boxes_from_result_ms`, `yolo_preprocess_ms`) liefern in diesem Stand keinen einfachen, lokal umsetzbaren >=5%-End-to-End-Hebel.
+- Entscheidung 0.13.28: keine zusätzliche Performance-Optimierung als neuer Default; fachliche Logik (Thresholds/Tracking/Event/Candidate/Boundary/Recovery) unverändert.
+
 ## 0.13.27
 - Low-Hanging-Fruit Performance Sweep auf dem bestehenden Produktionspfad (PyTorch FP32 + Packed + OpenCV-Prefetch + optimierter Track-Pfad), ohne Änderungen an Event-/Candidate-/Boundary-/Recovery-/Threshold-Logik.
 - Neue schlanke Benchmark-Schalter für gezielte A/B-Läufe: `--tf32/--no-tf32`, `--cudnn-benchmark/--no-cudnn-benchmark`, `--imgsz`.

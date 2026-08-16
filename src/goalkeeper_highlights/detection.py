@@ -2068,6 +2068,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     keeper_cfg = config["keeper"]
     clips = config["clips"]
     runtime = config.get("runtime", {})
+    benchmark_mode = bool(runtime.get("benchmark_mode", False))
+    benchmark_force_noninteractive_keeper_selection = bool(runtime.get("benchmark_force_noninteractive_keeper_selection", False))
     device = yolo["device"]
     if device == "auto":
         device = "0" if torch.cuda.is_available() else "cpu"
@@ -2219,6 +2221,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
     confidence_lock_after = max(0.0, float(keeper_cfg.get("confidence_lock_after_seconds", 30.0)))
     last_keeper: Optional[Box] = None
     interactive_done = False
+    interactive_wait_seconds = 0.0
     candidates: list[Candidate] = []
     started = time.time()
     last_progress = 0.0
@@ -2426,10 +2429,16 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                     if store is not None:
                         store.set_state("keeper_detection", bootstrap_result)
 
-            if keeper is None and identity is None and bootstrap_complete and keeper_cfg.get("interactive_selection", True) and not interactive_done and persons:
+            interactive_selection_enabled = bool(keeper_cfg.get("interactive_selection", True)) and not (
+                benchmark_mode and benchmark_force_noninteractive_keeper_selection
+            )
+
+            if keeper is None and identity is None and bootstrap_complete and interactive_selection_enabled and not interactive_done and persons:
                 if progress_callback:
                     progress_callback(min(0.03, decoded.timestamp / max(duration, 1)), "Automatische Erkennung unsicher – warte auf Torwartauswahl")
+                selection_started = time.perf_counter()
                 keeper = select_keeper(decoded.image, persons)
+                interactive_wait_seconds += max(0.0, time.perf_counter() - selection_started)
                 interactive_done = True
                 if keeper:
                     identity = KeeperIdentity(decoded.image, keeper, keeper_cfg, decoder.width, decoder.height)
@@ -2443,7 +2452,7 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                         store.set_state("keeper_detection", bootstrap_result)
                     if verbose_console:
                         print(f"Selected Keeper #1: ByteTrack {keeper.track_id}")
-            if keeper is None and identity is None and bootstrap_complete and not keeper_cfg.get("interactive_selection", True):
+            if keeper is None and identity is None and bootstrap_complete and not interactive_selection_enabled:
                 keeper = choose_keeper_auto(persons, decoder.width, decoder.height, keeper_cfg["goal_roi"])
                 if keeper:
                     identity = KeeperIdentity(decoded.image, keeper, keeper_cfg, decoder.width, decoder.height)
@@ -2646,6 +2655,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
         bootstrap_result["reidentification_count"] = reid_count
         bootstrap_result["mean_tracking_confidence"] = float(np.mean(reid_confidences))
         bootstrap_result["median_tracking_confidence"] = float(np.median(reid_confidences))
+    bootstrap_result["selection_timed"] = bool(interactive_wait_seconds > 0.0)
+    bootstrap_result["interactive_wait_seconds"] = float(interactive_wait_seconds)
     if store is not None:
         store.set_state("keeper_detection", bootstrap_result)
         ordered_source_stats = [source_stats[key] for key in sorted(source_stats)]
@@ -2703,6 +2714,8 @@ def detect(video, duration: float, config: dict, store=None, progress_callback: 
                 "recovery_candidates": len(recovered) + len(diagnostic_recovered),
                 "diagnostic_recovery_candidates": len(diagnostic_recovered),
                 "processed_frames": processed_frames,
+                "interactive_wait_seconds": float(interactive_wait_seconds),
+                "keeper_selection_timed": bool(interactive_wait_seconds > 0.0),
                 "requested_fp16": requested_fp16,
                 "effective_fp16": effective_fp16,
                 "fp16_fallback_reason": fp16_fallback_reason,

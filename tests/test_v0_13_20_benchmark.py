@@ -60,6 +60,7 @@ def test_v0_13_20_benchmark_config_disables_clip_export() -> None:
     assert cfg["runtime"]["track_execution_mode"] == "legacy"
     assert cfg["runtime"]["decoder_execution_mode"] == "prefetch"
     assert cfg["runtime"]["decoder_prefetch_queue_size"] == 4
+    assert cfg["runtime"]["benchmark_force_noninteractive_keeper_selection"] is True
     assert cfg["runtime"]["tf32"] is True
     assert cfg["runtime"]["cudnn_benchmark"] is True
     assert cfg["yolo"]["backend"] == "onnx"
@@ -126,6 +127,8 @@ def test_v0_13_21_benchmark_metrics_precision_fields() -> None:
         "system": {"gpu": ""},
         "keeper_label": "Keeper #1",
         "keeper_confidence": 0.77,
+        "keeper_selection_mode": "single_frame_fallback",
+        "keeper_selection_timed": False,
         "accepted": 2,
         "rejected": 1,
         "final_candidates": 3,
@@ -141,6 +144,8 @@ def test_v0_13_21_benchmark_metrics_precision_fields() -> None:
     assert payload["requested_backend"] == "tensorrt"
     assert payload["effective_backend"] == "pytorch"
     assert payload["backend_fallback_reason"] == "tensorrt_unavailable"
+    assert payload["keeper_selection_mode"] == "single_frame_fallback"
+    assert payload["keeper_selection_timed"] is False
 
 
 def test_v0_13_21_detection_numeric_tolerance_equivalent() -> None:

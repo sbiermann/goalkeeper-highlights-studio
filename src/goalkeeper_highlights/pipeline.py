@@ -166,14 +166,26 @@ def run(source: Path, output: Path, config: dict, overwrite: bool, ffmpeg: str =
             timings["raw_candidates"] = int(detection_stats.get("raw_candidates", len(candidates)))
             timings["final_candidates"] = int(detection_stats.get("final_candidates", len(candidates)))
             timings["merged_candidates"] = int(detection_stats.get("merged_candidates", 0))
+            interactive_wait_seconds = float(detection_stats.get("interactive_wait_seconds", 0.0) or 0.0)
+            timings["interactive_wait_seconds"] = interactive_wait_seconds
+            if interactive_wait_seconds > 0.0:
+                timings["analysis_seconds"] = max(0.0, float(timings["analysis_seconds"]) - interactive_wait_seconds)
+                analysis_seconds = float(timings["analysis_seconds"])
+                timings["realtime_factor"] = duration / analysis_seconds if analysis_seconds > 0 else 0.0
+            timings["keeper_selection_timed"] = bool(detection_stats.get("keeper_selection_timed", False))
         else:
             timings["raw_candidates"] = len(candidates)
             timings["final_candidates"] = len(candidates)
             timings["merged_candidates"] = 0
+            timings["interactive_wait_seconds"] = 0.0
+            timings["keeper_selection_timed"] = False
         if isinstance(keeper_detection, dict):
             timings["keeper_label"] = str(keeper_detection.get("keeper_label", "Keeper #1"))
             timings["keeper_confidence"] = float(keeper_detection.get("stabilized_confidence", keeper_detection.get("confidence", 0.0)))
             timings["keeper_reidentifications"] = int(keeper_detection.get("reidentification_count", 0))
+            timings["keeper_selection_mode"] = str(keeper_detection.get("method", "unknown"))
+            if "selection_timed" in keeper_detection:
+                timings["keeper_selection_timed"] = bool(keeper_detection.get("selection_timed", False))
         if isinstance(precision_stats, dict):
             timings["requested_fp16"] = bool(precision_stats.get("requested_fp16", False))
             timings["effective_fp16"] = bool(precision_stats.get("effective_fp16", False))

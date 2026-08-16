@@ -47,6 +47,7 @@ def _benchmark_config(
     runtime["decoder_prefetch_queue_size"] = max(1, int(decoder_prefetch_queue_size))
     runtime["export_rejected"] = False
     runtime["verbose_console"] = False
+    runtime["benchmark_force_noninteractive_keeper_selection"] = True
     cfg.setdefault("profiling", {})["enabled"] = True
     cfg.setdefault("diagnostics", {})["enabled"] = False
     cfg.setdefault("qwen", {})["enabled"] = False
@@ -210,6 +211,8 @@ def _metrics(summary: dict[str, Any], *, start: float, duration: float, fp16: bo
         "merged": int(summary.get("merged_candidates", 0) or 0),
         "keeper": str(summary.get("keeper_label", "Keeper #1")),
         "keeper_confidence": round(_as_float(summary.get("keeper_confidence", 0.0)), 6),
+        "keeper_selection_mode": str(summary.get("keeper_selection_mode", "unknown")),
+        "keeper_selection_timed": bool(summary.get("keeper_selection_timed", True)),
         "stage_averages_ms": stage,
         "source_performance": summary.get("source_performance", []),
     }

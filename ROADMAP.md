@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.27, focused on a low-hanging-fruit performance sweep (TF32, cuDNN benchmark, imgsz variants) on the existing PyTorch FP32 path without event/candidate logic changes.
+Current stabilization release: 0.13.28, focused on benchmark-reproducibility hardening and a single low-effort hotspot screening on the existing PyTorch FP32 path without event/candidate logic changes.
 
 # Roadmap
 
@@ -8,6 +8,12 @@ Current stabilization release: 0.13.27, focused on a low-hanging-fruit performan
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.28 is completed as a credit-efficient reproducibility and hotspot-screening release.
+- Benchmark runs now force non-interactive keeper selection to avoid user-click waiting-time skew; keeper selection metadata is exposed via `keeper_selection_mode` and `keeper_selection_timed`.
+- Analysis timing now excludes interactive keeper waiting-time via `interactive_wait_seconds`, so `analysis_seconds`/`realtime_factor` remain benchmark-clean.
+- 60s production-path screening (`start=0`, `duration=60`, `frame_stride=2`, OpenCV+Prefetch, FP32, packed, baseline `image_size`) measured `analysis_seconds=43.879`, `processed_fps=17.115`.
+- Decision for 0.13.28: no new optimization default. Remaining dominant hotspot is still inside `model.track` framework cost; input-handling-related blocks did not show a simple local >=5% low-hanging-fruit path under current constraints.
+- Recommendation for 0.13.29: isolate and measure safe reductions around Ultralytics callback/predictor-pre overhead with strict functional equivalence guards.
 - Version 0.13.27 is completed as a constrained low-effort sweep on the established FP32/Packed/Prefetch path.
 - Screening/confirmation outcome: `tf32` gave a small speedup but remained below the 5% default threshold on 120s; `cudnn_benchmark` was slower; `imgsz=576` and `imgsz=512` were faster but not functionally equivalent (candidate-count deltas).
 - Event-rich Teil22 validation (`start=540`, `duration=220`) confirms functional equivalence for `tf32` (`4/3/1` vs `4/3/1`, keeper unchanged), but default criteria were still not met.
