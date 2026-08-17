@@ -61,3 +61,81 @@ def test_unrelated_goal_kick_is_not_chained_to_previous_restart():
     assert len(result) == 2
     assert result[1].start == 15
     assert result[1].end == 34
+
+
+def test_isolated_short_keeper_clearance_gets_conservative_tail():
+    clearance = Candidate(
+        candidate_id="raw-clear-short",
+        start=602.72,
+        end=620.12,
+        trigger_time=608.72,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+        accepted=True,
+        category="keeper_clearance",
+        action_start=608.72,
+        action_end=609.12,
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+    )
+    result = extend_and_chain_clip_windows([clearance], 700.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"keeper_clearance": 6.0},
+        "category_post_roll_seconds": {"keeper_clearance": 11.0},
+        "continuation_gap_seconds": 12.0,
+        "final_keeper_contact_tail_seconds": 5.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].start == 602.72
+    assert result[0].end == 612.72
+    assert result[0].clip_boundary_reason == "isolated_clearance_safety_tail"
+
+
+def test_keeper_clearance_with_continuation_keeps_longer_context():
+    clearance = Candidate(
+        candidate_id="raw-clear-chain",
+        start=602.72,
+        end=620.12,
+        trigger_time=608.72,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+        accepted=True,
+        category="keeper_clearance",
+        action_start=608.72,
+        action_end=609.12,
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+    )
+    follow_up = Candidate(
+        candidate_id="raw-follow",
+        start=610.0,
+        end=617.0,
+        trigger_time=611.0,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+        accepted=True,
+        category="interaction",
+        action_start=611.0,
+        action_end=613.0,
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+    )
+    result = extend_and_chain_clip_windows([clearance, follow_up], 700.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"keeper_clearance": 6.0, "interaction": 5.0},
+        "category_post_roll_seconds": {"keeper_clearance": 11.0, "interaction": 8.0},
+        "continuation_gap_seconds": 0.2,
+        "phase_merge_gap_seconds": 0.2,
+        "final_keeper_contact_tail_seconds": 5.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "interaction_validation": {"enabled": False},
+    })
+    clearance_result = next(c for c in result if c.candidate_id == "raw-clear-chain")
+    assert clearance_result.end > 612.72
+    assert clearance_result.clip_boundary_reason != "isolated_clearance_safety_tail"

@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.29, focused on a credit-efficient boundary correction pass for the first seven chronological final candidates with unchanged event/candidate/recovery threshold semantics.
+Current stabilization release: 0.13.30, focused on a credit-efficient boundary correction pass for clips 3 and 7 in the first seven chronological final candidates while keeping all other 1–7 regressions stable.
 
 # Roadmap
 
@@ -8,6 +8,11 @@ Current stabilization release: 0.13.29, focused on a credit-efficient boundary c
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.30 is completed as a credit-efficient boundary-fix release for the first block (clips 1–7) with unchanged event/candidate/recovery threshold semantics.
+- 0.13.30 outcome: clip 3 (`raw-0005`) is shifted to later start and longer post-context; clip 7 (`raw-0020`) is shortened to a conservative isolated safety tail; clip 2 remains rejected; clips 1/4/5/6 remain unchanged.
+- 0.13.30 validation was executed on the bounded real run window (`--duration 625`) and confirmed stable candidate mapping/invariants for clips 1–7.
+- Decision for 0.13.30: no performance optimization work; PyTorch FP32 + prefetch + packed + current track path remain unchanged.
+- Recommendation for 0.13.31: only continue with broader quality validation after locking this 0.13.30 baseline.
 - Version 0.13.29 is completed as a credit-efficient boundary-fix release for clips 1–7 with a short real-run validation window (`--duration 625`).
 - 0.13.29 outcome: clip boundaries for the first block were corrected via generalizable core-selection rules; clip 2 remains rejected; clips 6/7 remain regression-stable.
 - `analyze` now accepts optional `--duration` for bounded real validations; default full-length analysis remains unchanged.

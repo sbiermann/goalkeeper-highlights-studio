@@ -1,3 +1,11 @@
+## 0.13.30
+- Credit-effizienter Boundary-Release nur für den ersten chronologischen Block 1–7 mit unveränderter Event-/Threshold-/Recovery-Logik.
+- `raw-0005` (`catch_or_control`) erhält für kompakte isolierte Cores eine asymmetrische Context-Verschiebung (ca. `+2s` Start, `+2s` Ende), ohne Action-Cut und ohne globale Category-Defaults zu ändern.
+- `raw-0020` (`keeper_clearance`) wird bei kurzer, isolierter Aktion ohne echte Continuation auf konservativen Safety-Tail begrenzt (ca. 3–4s nach `action_end`).
+- Bereits korrekte Regressionen bleiben stabil (`raw-0001`, `raw-0004` rejected, `raw-0006`, `raw-0012`, `raw-0015`); keine Candidate-ID-/Timestamp-Hardcodings, keine neuen Merges.
+- Neue/aktualisierte Boundary-Regressionstests für Catch-Rebalance, isolierte Clearance-Tail-Kappung, Continuation-Ausnahme und Rejected-Stabilität.
+- Boundary-Defaults in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` synchron erweitert; Debug-Archivname auf `goalkeeper_highlights_debug_v0.13.30.zip` angehoben.
+
 ## 0.13.29
 - Credit-effiziente Boundary-Korrektur nur für den ersten chronologischen Block (finale Clips 1–7 inkl. rejected) mit unveränderter Event-/Threshold-/Recovery-Grundlogik.
 - Neuer allgemeiner Core-Ansatz in der finalen Clip-Planung: schwache akzeptierte Folgephasen können absorbiert werden, ohne den starken Action-Core unnötig auf volle 45s aufzublähen.

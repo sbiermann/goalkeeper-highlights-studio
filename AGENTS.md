@@ -206,6 +206,15 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Neue Boundary-Core-Defaults in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` synchronisiert; Event-/Candidate-/Recovery-/Threshold-Logik blieb unverändert.
 - Debug-Paketname angehoben auf `goalkeeper_highlights_debug_v0.13.29.zip`.
 
+## Version 0.13.30
+
+- Credit-effizienter Boundary-Abschluss nur für den ersten chronologischen Block 1–7 bei unveränderter Event-/Candidate-/Recovery-/Threshold-Logik.
+- `catch_or_control` erlaubt für kompakte isolierte Cores eine asymmetrische Context-Verschiebung (weniger Pre-Roll, mehr Post-Roll), ohne Action-Fenster abzuschneiden und ohne globale Category-Before/After-Änderung.
+- Kurze isolierte `keeper_clearance`-/Distribution-artige Aktionen werden ohne echte Folgephase auf konservativen Safety-Tail begrenzt; mit Continuation bleibt längerer Kontext erlaubt.
+- Stabilitätsinvariante für den Block 1–7: `raw-0001`, `raw-0004` (rejected), `raw-0006`, `raw-0012`, `raw-0015` bleiben unverändert; nur `raw-0005` und `raw-0020` erhalten Boundary-Anpassung.
+- Neue Boundary-Defaults in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` synchronisiert; keine Candidate-ID-/Timestamp-Hardcodings.
+- Debug-Paketname angehoben auf `goalkeeper_highlights_debug_v0.13.30.zip`.
+
 ## Version 0.13.27
 
 - Ziel war ein credit-effizienter Low-Hanging-Fruit-Sweep auf dem bestehenden Produktionspfad (PyTorch FP32, Packed Conversion, OpenCV-Prefetch, optimierter Track-Pfad) ohne fachliche Logikänderungen.

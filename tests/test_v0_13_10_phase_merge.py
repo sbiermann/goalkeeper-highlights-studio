@@ -227,7 +227,7 @@ def test_isolated_catch_or_control_gets_core_trimmed_tail():
         "continuation_gap_seconds": 12.0,
         "category_pre_roll_seconds": {"catch_or_control": 10.0},
         "category_post_roll_seconds": {"catch_or_control": 11.0},
-        "catch_control_dynamic_post_roll_enabled": False,
+        "catch_control_dynamic_post_roll_enabled": True,
         "catch_control_isolated_dynamic_idle_tail_seconds": 1.0,
     }
 
@@ -235,10 +235,47 @@ def test_isolated_catch_or_control_gets_core_trimmed_tail():
 
     assert len(results) == 1
     trimmed = results[0]
-    assert trimmed.start == pytest.approx(273.76)
-    assert trimmed.end == pytest.approx(288.84)
-    assert trimmed.clip_boundary_reason == "isolated_action_core"
-    assert trimmed.score_breakdown.get("catch_control_isolated_core_trim_applied") == pytest.approx(1.0)
+    assert trimmed.start == pytest.approx(275.76)
+    assert trimmed.end == pytest.approx(290.84)
+    assert trimmed.clip_boundary_reason == "isolated_action_core_rebalanced"
+
+
+def test_compact_rebalance_does_not_touch_shorter_isolated_catch():
+    candidate = Candidate(
+        candidate_id="raw-stable",
+        start=92.84,
+        end=106.08,
+        trigger_time=102.84,
+        action_start=102.84,
+        action_end=105.08,
+        accepted=True,
+        category="catch_or_control",
+        keeper_label="Keeper #1",
+        clip_end_reason="dynamic_idle_tail",
+        interaction_score=0.52,
+        contact_frames=8,
+        possession_duration=0.8,
+        ball_confidence=0.62,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+    )
+    clips_cfg = {
+        "interaction_validation": {"enabled": False},
+        "max_dynamic_clip_seconds": 45.0,
+        "continuation_gap_seconds": 12.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0},
+        "category_post_roll_seconds": {"catch_or_control": 1.0},
+        "catch_control_dynamic_post_roll_enabled": False,
+        "catch_control_isolated_dynamic_idle_tail_seconds": 1.0,
+    }
+
+    results = extend_and_chain_clip_windows([candidate], 500.0, clips_cfg)
+
+    assert len(results) == 1
+    stable = results[0]
+    assert stable.start == pytest.approx(92.84)
+    assert stable.end == pytest.approx(106.08)
+    assert stable.clip_boundary_reason == "observed_action_window"
 
 def test_action_too_long_no_merge():
     # Action span is 200 to 250 = 50s. Max is 45s.
