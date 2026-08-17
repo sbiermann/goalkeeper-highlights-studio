@@ -187,7 +187,7 @@ clips:
   distribution_long_phase_max_clip_seconds: 15.0
   recovery_context_rescue_pre_roll_seconds: 6.0
   recovery_context_rescue_post_roll_seconds: 6.0
-  catch_control_final_overlap_core_max_seconds: 35.0
+  catch_control_final_overlap_core_max_seconds: 24.0
   # A file change is treated as an edit/half-time boundary unless explicitly
   # enabled. This prevents the last second of one half leaking into the next.
   allow_cross_source_clips: false

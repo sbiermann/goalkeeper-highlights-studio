@@ -142,6 +142,41 @@ def test_contextual_recovery_rescue_accepts_compact_valid_recovery_window():
     assert candidate.score_breakdown.get("recovery_contextual_rescue_applied") == 1.0
 
 
+def test_contextual_recovery_rescue_accepts_clip_17_like_long_action_span_with_compact_recovery_window():
+    candidate = Candidate(
+        1566.0,
+        1585.0,
+        1574.0,
+        0.80,
+        1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1566.0,
+        action_end=1585.0,
+        recovery_window_start=1574.0,
+        recovery_window_end=1576.0,
+        event_score=0.494,
+        acceptance_threshold=0.42,
+        interaction_score=0.149,
+        ball_confidence=0.294,
+        keeper_motion=0.198,
+        contact_frames=1,
+        possession_duration=0.0,
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "suspicious_contact_frames": 12,
+            "minimum_motion_signal": 0.08,
+            "minimum_recovery_interaction_score": 0.45,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.accepted is True
+    assert candidate.score_breakdown.get("recovery_contextual_rescue_applied") == 1.0
+
+
 def test_context_free_recovery_stays_rejected_even_if_interaction_score_is_higher():
     candidate = Candidate(
         1500.0,
@@ -160,6 +195,74 @@ def test_context_free_recovery_stays_rejected_even_if_interaction_score_is_highe
         acceptance_threshold=0.42,
         interaction_score=0.26,
         ball_confidence=0.31,
+        keeper_motion=0.19,
+        contact_frames=0,
+        possession_duration=0.0,
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "suspicious_contact_frames": 12,
+            "minimum_motion_signal": 0.08,
+            "minimum_recovery_interaction_score": 0.45,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.rejection_reason == "insufficient_recovery_interaction_score"
+
+
+def test_clip_13_like_recovery_stays_rejected_without_compact_context():
+    candidate = Candidate(
+        1510.0,
+        1529.0,
+        1518.0,
+        0.82,
+        1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1510.0,
+        action_end=1529.0,
+        recovery_window_start=1518.0,
+        recovery_window_end=1522.5,
+        event_score=0.51,
+        acceptance_threshold=0.42,
+        interaction_score=0.21,
+        ball_confidence=0.31,
+        keeper_motion=0.20,
+        contact_frames=1,
+        possession_duration=0.0,
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "suspicious_contact_frames": 12,
+            "minimum_motion_signal": 0.08,
+            "minimum_recovery_interaction_score": 0.45,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.rejection_reason == "insufficient_recovery_interaction_score"
+
+
+def test_clip_14_like_recovery_stays_rejected_with_weak_contextual_signal():
+    candidate = Candidate(
+        1535.0,
+        1554.0,
+        1543.0,
+        0.91,
+        1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1540.0,
+        action_end=1544.5,
+        recovery_window_start=1540.0,
+        recovery_window_end=1544.5,
+        event_score=0.47,
+        acceptance_threshold=0.42,
+        interaction_score=0.19,
+        ball_confidence=0.27,
         keeper_motion=0.19,
         contact_frames=0,
         possession_duration=0.0,

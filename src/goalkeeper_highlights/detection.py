@@ -119,8 +119,9 @@ def _has_contextual_recovery_rescue(candidate: Candidate, clips_cfg: dict[str, A
 
     action_start = candidate.action_start or candidate.trigger_time
     action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
-    recovery_window_end = max(candidate.recovery_window_end, action_end)
-    recovery_window_span = max(0.0, recovery_window_end - action_start)
+    recovery_window_start = candidate.recovery_window_start if candidate.recovery_window_start > 0.0 else action_start
+    recovery_window_end = candidate.recovery_window_end if candidate.recovery_window_end > 0.0 else action_end
+    recovery_window_span = max(0.0, recovery_window_end - recovery_window_start)
     event_margin = candidate.event_score - candidate.acceptance_threshold
 
     return (
@@ -1747,6 +1748,18 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         0.0,
         float(clips_cfg.get("clearance_continuation_search_seconds", 12.0)),
     )
+    distribution_preparation_pre_roll = max(
+        0.0,
+        float(clips_cfg.get("distribution_preparation_pre_roll_seconds", 2.0)),
+    )
+    distribution_preparation_action_max = max(
+        0.0,
+        float(clips_cfg.get("distribution_preparation_max_action_seconds", 2.5)),
+    )
+    distribution_preparation_clip_max = max(
+        8.0,
+        float(clips_cfg.get("distribution_preparation_max_clip_seconds", 18.0)),
+    )
     distribution_restart_rescue_extra_tail = max(
         0.0,
         float(clips_cfg.get("distribution_restart_rescue_extra_tail_seconds", 1.0)),
@@ -1777,7 +1790,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
     )
     catch_final_overlap_core_max_seconds = max(
         20.0,
-        float(clips_cfg.get("catch_control_final_overlap_core_max_seconds", 35.0)),
+        float(clips_cfg.get("catch_control_final_overlap_core_max_seconds", 24.0)),
     )
     merged_dynamic_tail_cap = max(6.0, float(clips_cfg.get("catch_control_merged_phase_max_seconds", 18.0)))
     single_merge_dynamic_tail = max(0.5, float(clips_cfg.get("catch_control_single_merge_dynamic_tail_seconds", 4.0)))
@@ -2028,6 +2041,34 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                         )
                 else:
                     candidate.score_breakdown["clearance_isolated_tail_continuation_detected"] = 1.0
+
+        if (
+            candidate.accepted
+            and candidate.category in {"distribution", "goalkeeper_distribution", "keeper_clearance"}
+            and len(candidate.merged_from) <= 1
+        ):
+            action_start = candidate.action_start or candidate.trigger_time
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            action_duration = max(0.0, action_end - action_start)
+            clip_duration = max(0.0, candidate.end - candidate.start)
+            execution_anchor = candidate.trigger_time
+            current_pre_roll = max(0.0, execution_anchor - candidate.start)
+            if (
+                action_duration <= distribution_preparation_action_max
+                and clip_duration <= distribution_preparation_clip_max
+                and current_pre_roll + 1e-6 < distribution_preparation_pre_roll
+            ):
+                desired_start = max(0.0, execution_anchor - distribution_preparation_pre_roll)
+                if desired_start < candidate.start:
+                    candidate.start = desired_start
+                    candidate.clip_boundary_reason = "distribution_preparation_pre_roll"
+                    candidate.score_breakdown.update(
+                        {
+                            "distribution_preparation_pre_roll_applied": 1.0,
+                            "distribution_preparation_pre_roll_seconds": distribution_preparation_pre_roll,
+                            "distribution_preparation_pre_roll_effective_start": candidate.start,
+                        }
+                    )
 
         if (
             candidate.accepted
