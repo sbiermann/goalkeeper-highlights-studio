@@ -1,3 +1,11 @@
+## 0.13.31
+- Credit-effizienter Logik-/Boundary-Release ohne Realvideo-Läufe durch Junie (`MAX_REAL_VIDEO_RUNS=0`): Fokus ausschließlich auf Clip-Klassen 12/15/17/20 bei unveränderter Performance-Basis (FP32, Prefetch, Packed, bestehender Trackpfad).
+- Restart-Relevance-Guard verfeinert: `irrelevant_outside_box_restart` wird für stark verifizierte Distribution-Phasen konservativ überstimmt (Kontakt/Possession/Interaction/Ball-Confidence plus Release-Signal), während schwache isolierte Restarts weiterhin rejected bleiben.
+- Kontextuelle Recovery-Rescue ergänzt: kompakte, lokal belegte `recovery_uncovered_activity`-Kandidaten können trotz striktem Recovery-Interaction-Threshold akzeptiert werden; kontextlose/zu breite Recovery-Fenster bleiben rejected.
+- Boundary-Core-Regeln erweitert: kleine zusätzliche Tail-Erhaltung für restart-gerettete Distributionen, kompakter Core-Zuschnitt für lange Multi-Distribution-Phasen sowie kompakteres Rescue-Fenster für akzeptierte kontextuelle Recovery-Kandidaten.
+- Catch/Control-Langphasen erhalten zusätzlich eine konservative `final_overlap`-Core-Kappung für sehr lange, stark gemergte Phasen statt reinem Max-Duration-Clamp.
+- Neue gezielte Regressionstests für Restart-Rescue, Recovery-Rescue und Boundary-Core-Verhalten ergänzt; Default-Konfiguration in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` synchronisiert; Debug-Archivname via Version jetzt `goalkeeper_highlights_debug_v0.13.31.zip`.
+
 ## 0.13.30
 - Credit-effizienter Boundary-Release nur für den ersten chronologischen Block 1–7 mit unveränderter Event-/Threshold-/Recovery-Logik.
 - `raw-0005` (`catch_or_control`) erhält für kompakte isolierte Cores eine asymmetrische Context-Verschiebung (ca. `+2s` Start, `+2s` Ende), ohne Action-Cut und ohne globale Category-Defaults zu ändern.

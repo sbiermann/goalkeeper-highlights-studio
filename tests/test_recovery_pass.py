@@ -42,6 +42,140 @@ def test_irrelevant_central_restart_is_rejected():
     assert candidate.rejection_reason == "irrelevant_outside_box_restart"
 
 
+def test_strong_distribution_survives_outside_box_restart_guard():
+    candidate = Candidate(
+        920.24,
+        943.52,
+        924.24,
+        0.0,
+        1,
+        accepted=True,
+        category="distribution",
+        contact_frames=31,
+        possession_duration=2.8,
+        keeper_y_normalized=0.5,
+        approach_speed=0.01,
+        departure_speed=1.64,
+        direction_change=0.01,
+        keeper_motion=4.13,
+        ball_confidence=0.736,
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "suspicious_contact_frames": 12,
+            "minimum_motion_signal": 0.08,
+            "central_field_y_min": 0.36,
+            "central_field_y_max": 0.64,
+            "outside_box_restart_min_seconds": 2.5,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.accepted is True
+    assert candidate.score_breakdown.get("restart_relevance_rescue_applied") == 1.0
+
+
+def test_weak_isolated_restart_remains_rejected_after_rescue_rule():
+    candidate = Candidate(
+        100.0,
+        120.0,
+        110.0,
+        0.2,
+        1,
+        accepted=True,
+        category="distribution",
+        contact_frames=12,
+        possession_duration=2.8,
+        keeper_y_normalized=0.5,
+        approach_speed=0.01,
+        departure_speed=0.2,
+        direction_change=0.01,
+        keeper_motion=0.02,
+        ball_confidence=0.40,
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "suspicious_contact_frames": 12,
+            "minimum_motion_signal": 0.08,
+            "central_field_y_min": 0.36,
+            "central_field_y_max": 0.64,
+            "outside_box_restart_min_seconds": 2.5,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.rejection_reason == "irrelevant_outside_box_restart"
+
+
+def test_contextual_recovery_rescue_accepts_compact_valid_recovery_window():
+    candidate = Candidate(
+        1566.0,
+        1585.0,
+        1574.0,
+        0.80,
+        1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1574.0,
+        action_end=1576.0,
+        recovery_window_start=1574.0,
+        recovery_window_end=1576.0,
+        event_score=0.494,
+        acceptance_threshold=0.42,
+        interaction_score=0.149,
+        ball_confidence=0.294,
+        keeper_motion=0.198,
+        contact_frames=1,
+        possession_duration=0.0,
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "suspicious_contact_frames": 12,
+            "minimum_motion_signal": 0.08,
+            "minimum_recovery_interaction_score": 0.45,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.accepted is True
+    assert candidate.score_breakdown.get("recovery_contextual_rescue_applied") == 1.0
+
+
+def test_context_free_recovery_stays_rejected_even_if_interaction_score_is_higher():
+    candidate = Candidate(
+        1500.0,
+        1519.0,
+        1510.0,
+        0.95,
+        1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1510.0,
+        action_end=1512.0,
+        recovery_window_start=1510.0,
+        recovery_window_end=1517.0,
+        event_score=0.49,
+        acceptance_threshold=0.42,
+        interaction_score=0.26,
+        ball_confidence=0.31,
+        keeper_motion=0.19,
+        contact_frames=0,
+        possession_duration=0.0,
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "suspicious_contact_frames": 12,
+            "minimum_motion_signal": 0.08,
+            "minimum_recovery_interaction_score": 0.45,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.rejection_reason == "insufficient_recovery_interaction_score"
+
+
 class StaticFakeStore:
     def recovery_observations(self):
         return [

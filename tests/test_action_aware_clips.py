@@ -139,3 +139,138 @@ def test_keeper_clearance_with_continuation_keeps_longer_context():
     clearance_result = next(c for c in result if c.candidate_id == "raw-clear-chain")
     assert clearance_result.end > 612.72
     assert clearance_result.clip_boundary_reason != "isolated_clearance_safety_tail"
+
+
+def test_restart_rescued_distribution_gets_small_additional_tail():
+    candidate = Candidate(
+        start=920.24,
+        end=943.52,
+        trigger_time=924.24,
+        min_normalized_distance=0.0,
+        keeper_track_id=1,
+        accepted=True,
+        category="distribution",
+        action_start=924.24,
+        action_end=939.52,
+        keeper_label="Keeper #1",
+        clip_end_reason="controlled_release",
+        score_breakdown={"restart_relevance_rescue_applied": 1.0},
+        merged_from=["raw-0035", "raw-0036", "raw-0037"],
+        departure_speed=1.64,
+    )
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 4.0},
+        "category_post_roll_seconds": {"distribution": 4.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].accepted is True
+    assert result[0].end == 944.52
+    assert result[0].clip_boundary_reason == "restart_rescue_distribution_tail"
+
+
+def test_long_multi_distribution_is_trimmed_to_compact_core_window():
+    candidate = Candidate(
+        start=1470.16,
+        end=1497.60,
+        trigger_time=1476.0,
+        min_normalized_distance=0.0,
+        keeper_track_id=1,
+        accepted=True,
+        category="distribution",
+        action_start=1474.0,
+        action_end=1485.0,
+        keeper_label="Keeper #1",
+        clip_end_reason="controlled_release",
+        merged_from=["raw-0039", "raw-0040", "raw-0042"],
+        departure_speed=7.7,
+        score_breakdown={"phase_merge_action_duration": 18.0},
+    )
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 4.0},
+        "category_post_roll_seconds": {"distribution": 11.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].accepted is True
+    assert (result[0].end - result[0].start) == 15.0
+    assert result[0].clip_boundary_reason == "distribution_compact_core_window"
+
+
+def test_recovery_contextual_rescue_gets_compact_window_instead_of_generic_recovery_span():
+    candidate = Candidate(
+        start=1566.0,
+        end=1585.0,
+        trigger_time=1574.0,
+        min_normalized_distance=0.80,
+        keeper_track_id=1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1574.0,
+        action_end=1576.0,
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        score_breakdown={"recovery_contextual_rescue_applied": 1.0},
+    )
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 8.0,
+        "seconds_after": 9.0,
+        "category_pre_roll_seconds": {"recovery_uncovered_activity": 8.0},
+        "category_post_roll_seconds": {"recovery_uncovered_activity": 9.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].accepted is True
+    assert (result[0].end - result[0].start) == 14.0
+    assert result[0].clip_boundary_reason == "recovery_context_rescue_window"
+
+
+def test_long_multi_catch_final_overlap_phase_is_core_trimmed():
+    candidate = Candidate(
+        start=1659.12,
+        end=1707.72,
+        trigger_time=1661.12,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+        accepted=True,
+        category="catch_or_control",
+        action_start=1661.12,
+        action_end=1663.04,
+        keeper_label="Keeper #1",
+        clip_end_reason="dynamic_idle_tail",
+        clip_boundary_reason="final_overlap_merged",
+        merged_from=["raw-0052", "raw-0053", "raw-0054", "raw-0055", "raw-0056", "diagnostic-recovery-0007"],
+        score_breakdown={
+            "final_overlap_merge_applied": 1.0,
+            "final_overlap_original_union_duration": 61.88,
+            "final_overlap_trimmed_duration": 48.60,
+        },
+    )
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0},
+        "category_post_roll_seconds": {"catch_or_control": 11.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].accepted is True
+    assert (result[0].end - result[0].start) < 48.6
+    assert result[0].end <= 1696.12

@@ -215,6 +215,15 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Neue Boundary-Defaults in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` synchronisiert; keine Candidate-ID-/Timestamp-Hardcodings.
 - Debug-Paketname angehoben auf `goalkeeper_highlights_debug_v0.13.30.zip`.
 
+## Version 0.13.31
+
+- Credit-effizienter Korrektur-Release nur für die Zielklassen um Clip 12/15/17/20; keine Realvideo-Läufe durch Junie (`MAX_REAL_VIDEO_RUNS=0`) und keine Performancearbeit.
+- Restart-Relevance-Guard bleibt aktiv, akzeptiert aber starke verifizierte Distribution-/Release-Phasen als konservative Ausnahme statt pauschalem `irrelevant_outside_box_restart`.
+- Kontextuelle Recovery-Rescue ergänzt: kompakte, evidenzgestützte `recovery_uncovered_activity`-Fenster können trotz strengem Recovery-Interaction-Threshold akzeptiert werden; kontextlose Fälle bleiben rejected.
+- Boundary-Core-Auswahl erweitert: kleine Tail-Erhaltung für restart-gerettete Distributionen, kompakter Core für lange Multi-Distribution-Phasen und kompakteres Fenster für akzeptierte Recovery-Rescues.
+- Lange stark gemergte `catch_or_control`-Final-Overlap-Phasen werden konservativ auf einen relevanten Core begrenzt statt nur auf technisches Max-Limit geklemmt.
+- Neue gezielte Regressionstests für Restart-/Recovery-/Boundary-Regeln ergänzt; Debug-Paketname via Version auf `goalkeeper_highlights_debug_v0.13.31.zip` angehoben.
+
 ## Version 0.13.27
 
 - Ziel war ein credit-effizienter Low-Hanging-Fruit-Sweep auf dem bestehenden Produktionspfad (PyTorch FP32, Packed Conversion, OpenCV-Prefetch, optimierter Track-Pfad) ohne fachliche Logikänderungen.

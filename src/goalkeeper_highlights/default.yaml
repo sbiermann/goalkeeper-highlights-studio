@@ -180,6 +180,14 @@ clips:
   clearance_isolated_short_action_max_seconds: 1.5
   clearance_isolated_safety_tail_seconds: 3.6
   clearance_continuation_search_seconds: 12.0
+  distribution_restart_rescue_extra_tail_seconds: 1.0
+  distribution_long_phase_departure_speed_floor: 3.0
+  distribution_long_phase_core_seconds: 11.0
+  distribution_long_phase_tail_seconds: 4.0
+  distribution_long_phase_max_clip_seconds: 15.0
+  recovery_context_rescue_pre_roll_seconds: 6.0
+  recovery_context_rescue_post_roll_seconds: 6.0
+  catch_control_final_overlap_core_max_seconds: 35.0
   # A file change is treated as an edit/half-time boundary unless explicitly
   # enabled. This prevents the last second of one half leaking into the next.
   allow_cross_source_clips: false

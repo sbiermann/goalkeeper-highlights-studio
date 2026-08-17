@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.30, focused on a credit-efficient boundary correction pass for clips 3 and 7 in the first seven chronological final candidates while keeping all other 1–7 regressions stable.
+Current stabilization release: 0.13.31, focused on credit-efficient false-negative rescue and core-boundary correction for clips 12/15/17/20 with unchanged performance/runtime defaults.
 
 # Roadmap
 
@@ -8,6 +8,11 @@ Current stabilization release: 0.13.30, focused on a credit-efficient boundary c
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.31 is completed as a credit-efficient logic/boundary release for clip classes 12/15/17/20 with strict regression protection for already approved clips.
+- 0.13.31 outcome: strong merged distribution phases can survive outside-box restart rejection when multi-signal release evidence is present; weak isolated restart situations remain rejected.
+- 0.13.31 adds conservative contextual recovery rescue for compact uncovered-activity windows while preserving rejection of unsupported recovery windows.
+- 0.13.31 boundary outcome: rescued distribution/recovery clips use compact core-focused windows and long multi-catch final-overlap phases are trimmed by relevance instead of pure max-duration clamping.
+- 0.13.31 validation scope for this implementation: targeted unit/regression tests plus one full pytest suite run; no real-video runs performed by Junie (`MAX_REAL_VIDEO_RUNS=0`).
 - Version 0.13.30 is completed as a credit-efficient boundary-fix release for the first block (clips 1–7) with unchanged event/candidate/recovery threshold semantics.
 - 0.13.30 outcome: clip 3 (`raw-0005`) is shifted to later start and longer post-context; clip 7 (`raw-0020`) is shortened to a conservative isolated safety tail; clip 2 remains rejected; clips 1/4/5/6 remain unchanged.
 - 0.13.30 validation was executed on the bounded real run window (`--duration 625`) and confirmed stable candidate mapping/invariants for clips 1–7.

@@ -78,6 +78,60 @@ def detect_controlled_release(candidate: Candidate, items: list[Candidate], clip
                 
     return res
 
+
+def _has_strong_restart_distribution_evidence(candidate: Candidate, clips_cfg: dict[str, Any]) -> bool:
+    validation = clips_cfg.get("interaction_validation", {}) or {}
+    restart_categories = {"distribution", "goalkeeper_distribution", "keeper_clearance"}
+    if candidate.category not in restart_categories:
+        return False
+
+    min_contacts = int(validation.get("restart_rescue_min_contact_frames", 20))
+    min_possession = float(validation.get("restart_rescue_min_possession_seconds", 1.5))
+    min_interaction = float(validation.get("restart_rescue_min_interaction_score", 0.65))
+    min_ball_confidence = float(validation.get("restart_rescue_min_ball_confidence", 0.55))
+    min_departure = float(validation.get("restart_rescue_min_departure_speed", 1.0))
+
+    strong_release_signal = (
+        candidate.departure_speed >= min_departure
+        or candidate.clip_end_reason == "controlled_release"
+        or float(candidate.score_breakdown.get("controlled_release_detected", 0.0)) > 0.0
+    )
+    return (
+        candidate.contact_frames >= min_contacts
+        and candidate.possession_duration >= min_possession
+        and candidate.interaction_score >= min_interaction
+        and candidate.ball_confidence >= min_ball_confidence
+        and strong_release_signal
+    )
+
+
+def _has_contextual_recovery_rescue(candidate: Candidate, clips_cfg: dict[str, Any]) -> bool:
+    validation = clips_cfg.get("interaction_validation", {}) or {}
+    if not (candidate.recovery_candidate or candidate.category == "recovery_uncovered_activity"):
+        return False
+
+    min_event_margin = float(validation.get("recovery_context_rescue_min_event_margin", 0.05))
+    min_ball_confidence = float(validation.get("recovery_context_rescue_min_ball_confidence", 0.28))
+    max_distance = float(validation.get("recovery_context_rescue_max_distance", 0.85))
+    min_keeper_motion = float(validation.get("recovery_context_rescue_min_keeper_motion", 0.18))
+    min_contacts = int(validation.get("recovery_context_rescue_min_contact_frames", 1))
+    max_window_seconds = float(validation.get("recovery_context_rescue_max_window_seconds", 3.5))
+
+    action_start = candidate.action_start or candidate.trigger_time
+    action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+    recovery_window_end = max(candidate.recovery_window_end, action_end)
+    recovery_window_span = max(0.0, recovery_window_end - action_start)
+    event_margin = candidate.event_score - candidate.acceptance_threshold
+
+    return (
+        event_margin >= min_event_margin
+        and candidate.ball_confidence >= min_ball_confidence
+        and candidate.min_normalized_distance <= max_distance
+        and candidate.keeper_motion >= min_keeper_motion
+        and candidate.contact_frames >= min_contacts
+        and recovery_window_span <= max_window_seconds
+    )
+
 # v0.13.12: Secondary path for recovery candidates with unreliable possession_duration
 def find_recovery_distribution_continuation(candidate: Candidate, items: list[Candidate], clips_cfg: dict[str, Any]) -> dict[str, Any]:
     """Find a subsequent distribution candidate that belongs to the same goalkeeper phase.
@@ -658,6 +712,10 @@ def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]
             # Stricter validation for recovery candidates: single frame requires high dynamics
             # If interaction_score is low, reject even if it's a recovery candidate
             if interaction_score < float(validation.get("minimum_recovery_interaction_score", 0.45)):
+                if _has_contextual_recovery_rescue(candidate, clips_cfg):
+                    candidate.score_breakdown["recovery_contextual_rescue_applied"] = 1.0
+                    candidate.score_breakdown["interaction_validation"] = 1.0
+                    return True
                 candidate.accepted = False
                 candidate.rejection_reason = "insufficient_recovery_interaction_score"
                 candidate.score_breakdown["interaction_validation"] = -1.0
@@ -667,6 +725,11 @@ def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]
             candidate.rejection_reason = "insufficient_interaction_dynamics"
             candidate.score_breakdown["interaction_validation"] = -1.0
             return False
+
+    if irrelevant_restart and _has_strong_restart_distribution_evidence(candidate, clips_cfg):
+        candidate.score_breakdown["restart_relevance_rescue_applied"] = 1.0
+        candidate.score_breakdown["interaction_validation"] = 1.0
+        return True
 
     if not static_contact and not irrelevant_restart and candidate.contact_frames < extreme_frames:
         return True
@@ -1684,6 +1747,38 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         0.0,
         float(clips_cfg.get("clearance_continuation_search_seconds", 12.0)),
     )
+    distribution_restart_rescue_extra_tail = max(
+        0.0,
+        float(clips_cfg.get("distribution_restart_rescue_extra_tail_seconds", 1.0)),
+    )
+    distribution_long_phase_departure_floor = max(
+        0.0,
+        float(clips_cfg.get("distribution_long_phase_departure_speed_floor", 3.0)),
+    )
+    distribution_long_phase_core_seconds = max(
+        8.0,
+        float(clips_cfg.get("distribution_long_phase_core_seconds", 11.0)),
+    )
+    distribution_long_phase_tail_seconds = max(
+        1.0,
+        float(clips_cfg.get("distribution_long_phase_tail_seconds", 4.0)),
+    )
+    distribution_long_phase_max_clip_seconds = max(
+        12.0,
+        float(clips_cfg.get("distribution_long_phase_max_clip_seconds", 15.0)),
+    )
+    recovery_context_rescue_pre_roll_seconds = max(
+        0.0,
+        float(clips_cfg.get("recovery_context_rescue_pre_roll_seconds", 6.0)),
+    )
+    recovery_context_rescue_post_roll_seconds = max(
+        0.0,
+        float(clips_cfg.get("recovery_context_rescue_post_roll_seconds", 6.0)),
+    )
+    catch_final_overlap_core_max_seconds = max(
+        20.0,
+        float(clips_cfg.get("catch_control_final_overlap_core_max_seconds", 35.0)),
+    )
     merged_dynamic_tail_cap = max(6.0, float(clips_cfg.get("catch_control_merged_phase_max_seconds", 18.0)))
     single_merge_dynamic_tail = max(0.5, float(clips_cfg.get("catch_control_single_merge_dynamic_tail_seconds", 4.0)))
     single_merge_pre_roll_cap = max(0.0, float(clips_cfg.get("catch_control_single_merge_pre_roll_seconds", 3.0)))
@@ -1933,6 +2028,82 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                         )
                 else:
                     candidate.score_breakdown["clearance_isolated_tail_continuation_detected"] = 1.0
+
+        if (
+            candidate.accepted
+            and candidate.category in {"distribution", "goalkeeper_distribution"}
+            and float(candidate.score_breakdown.get("restart_relevance_rescue_applied", 0.0)) > 0.0
+        ):
+            extended_end = min(duration, candidate.end + distribution_restart_rescue_extra_tail)
+            if extended_end > candidate.end:
+                candidate.end = extended_end
+                candidate.clip_boundary_reason = "restart_rescue_distribution_tail"
+                candidate.score_breakdown["distribution_restart_rescue_tail_seconds"] = distribution_restart_rescue_extra_tail
+
+        if (
+            candidate.accepted
+            and candidate.category in {"distribution", "goalkeeper_distribution"}
+            and bool(candidate.merged_from)
+            and candidate.departure_speed >= distribution_long_phase_departure_floor
+            and (candidate.end - candidate.start) > distribution_long_phase_max_clip_seconds
+        ):
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            compact_start = max(candidate.start, action_end - distribution_long_phase_core_seconds)
+            compact_end = min(duration, action_end + distribution_long_phase_tail_seconds)
+            if compact_end > compact_start and (compact_end - compact_start) < (candidate.end - candidate.start):
+                candidate.start = compact_start
+                candidate.end = compact_end
+                candidate.clip_boundary_reason = "distribution_compact_core_window"
+                candidate.score_breakdown.update(
+                    {
+                        "distribution_compact_core_applied": 1.0,
+                        "distribution_compact_core_seconds": distribution_long_phase_core_seconds,
+                        "distribution_compact_tail_seconds": distribution_long_phase_tail_seconds,
+                    }
+                )
+
+        if (
+            candidate.accepted
+            and candidate.category == "recovery_uncovered_activity"
+            and float(candidate.score_breakdown.get("recovery_contextual_rescue_applied", 0.0)) > 0.0
+            and (candidate.end - candidate.start) > (recovery_context_rescue_pre_roll_seconds + recovery_context_rescue_post_roll_seconds + 1.0)
+        ):
+            action_start = candidate.action_start or candidate.trigger_time
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            compact_start = max(0.0, action_start - recovery_context_rescue_pre_roll_seconds)
+            compact_end = min(duration, action_end + recovery_context_rescue_post_roll_seconds)
+            if compact_end > compact_start:
+                candidate.start = compact_start
+                candidate.end = compact_end
+                candidate.clip_boundary_reason = "recovery_context_rescue_window"
+                candidate.score_breakdown.update(
+                    {
+                        "recovery_context_rescue_window_applied": 1.0,
+                        "recovery_context_rescue_pre_roll_seconds": recovery_context_rescue_pre_roll_seconds,
+                        "recovery_context_rescue_post_roll_seconds": recovery_context_rescue_post_roll_seconds,
+                    }
+                )
+
+        if (
+            candidate.accepted
+            and candidate.category == "catch_or_control"
+            and candidate.clip_boundary_reason == "final_overlap_merged"
+            and len(candidate.merged_from) >= 3
+            and (candidate.end - candidate.start) > catch_final_overlap_core_max_seconds
+        ):
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            compact_start = max(candidate.start, action_end - (catch_final_overlap_core_max_seconds - 5.0))
+            compact_end = min(duration, action_end + 5.0)
+            if compact_end > compact_start and (compact_end - compact_start) < (candidate.end - candidate.start):
+                candidate.start = compact_start
+                candidate.end = compact_end
+                candidate.clip_boundary_reason = "final_overlap_compact_core"
+                candidate.score_breakdown.update(
+                    {
+                        "final_overlap_compact_core_applied": 1.0,
+                        "final_overlap_compact_core_max_seconds": catch_final_overlap_core_max_seconds,
+                    }
+                )
 
     return final_clips
 
