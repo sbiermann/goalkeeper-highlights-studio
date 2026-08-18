@@ -83,6 +83,10 @@ class Candidate:
     recovery_candidate: bool = False
     recovery_window_start: float = 0.0
     recovery_window_end: float = 0.0
+    nearest_previous_accepted_keeper_gap: float = -1.0
+    nearest_next_accepted_keeper_gap: float = -1.0
+    nearest_previous_accepted_category: str = ""
+    nearest_next_accepted_category: str = ""
     recovery_tail_reason: str = ""
     routing_score: float = 0.0
     routing_category: str = "MEDIUM"

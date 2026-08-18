@@ -936,6 +936,36 @@ def recover_uncovered_activity_windows(store, existing: list[Candidate], duratio
             candidate_id=f"diagnostic-recovery-{index:04d}",
             lifecycle_stage="recovered", lifecycle_reason="uncovered_suspicious_window",
         )
+
+        # Diagnostic only: record temporal context to already accepted keeper
+        # candidates. These values intentionally do not affect acceptance.
+        nearest_previous_gap = float("inf")
+        nearest_next_gap = float("inf")
+        nearest_previous_category = ""
+        nearest_next_category = ""
+        for other in existing:
+            if not other.accepted or other.keeper_label != candidate.keeper_label:
+                continue
+            other_start = other.action_start or other.trigger_time
+            other_end = max(other.action_end or other.trigger_time, other.trigger_time)
+            if other_end <= start_t:
+                gap = start_t - other_end
+                if gap < nearest_previous_gap:
+                    nearest_previous_gap = gap
+                    nearest_previous_category = other.category
+            elif other_start >= end_t:
+                gap = other_start - end_t
+                if gap < nearest_next_gap:
+                    nearest_next_gap = gap
+                    nearest_next_category = other.category
+
+        if math.isfinite(nearest_previous_gap):
+            candidate.nearest_previous_accepted_keeper_gap = nearest_previous_gap
+            candidate.nearest_previous_accepted_category = nearest_previous_category
+        if math.isfinite(nearest_next_gap):
+            candidate.nearest_next_accepted_keeper_gap = nearest_next_gap
+            candidate.nearest_next_accepted_category = nearest_next_category
+
         recovered.append(candidate)
     return recovered
 
@@ -2044,34 +2074,6 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
 
         if (
             candidate.accepted
-            and candidate.category in {"distribution", "goalkeeper_distribution", "keeper_clearance"}
-            and len(candidate.merged_from) <= 1
-        ):
-            action_start = candidate.action_start or candidate.trigger_time
-            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
-            action_duration = max(0.0, action_end - action_start)
-            clip_duration = max(0.0, candidate.end - candidate.start)
-            execution_anchor = candidate.trigger_time
-            current_pre_roll = max(0.0, execution_anchor - candidate.start)
-            if (
-                action_duration <= distribution_preparation_action_max
-                and clip_duration <= distribution_preparation_clip_max
-                and current_pre_roll + 1e-6 < distribution_preparation_pre_roll
-            ):
-                desired_start = max(0.0, execution_anchor - distribution_preparation_pre_roll)
-                if desired_start < candidate.start:
-                    candidate.start = desired_start
-                    candidate.clip_boundary_reason = "distribution_preparation_pre_roll"
-                    candidate.score_breakdown.update(
-                        {
-                            "distribution_preparation_pre_roll_applied": 1.0,
-                            "distribution_preparation_pre_roll_seconds": distribution_preparation_pre_roll,
-                            "distribution_preparation_pre_roll_effective_start": candidate.start,
-                        }
-                    )
-
-        if (
-            candidate.accepted
             and candidate.category in {"distribution", "goalkeeper_distribution"}
             and float(candidate.score_breakdown.get("restart_relevance_rescue_applied", 0.0)) > 0.0
         ):
@@ -2102,6 +2104,36 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                         "distribution_compact_tail_seconds": distribution_long_phase_tail_seconds,
                     }
                 )
+
+        # Apply preparation context after compact-core trimming so the final
+        # boundary retains a small lead-in before the actual restart execution.
+        if (
+            candidate.accepted
+            and candidate.category in {"distribution", "goalkeeper_distribution", "keeper_clearance"}
+            and len(candidate.merged_from) <= 1
+        ):
+            action_start = candidate.action_start or candidate.trigger_time
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            action_duration = max(0.0, action_end - action_start)
+            clip_duration = max(0.0, candidate.end - candidate.start)
+            execution_anchor = candidate.trigger_time
+            current_pre_roll = max(0.0, execution_anchor - candidate.start)
+            if (
+                action_duration <= distribution_preparation_action_max
+                and clip_duration <= distribution_preparation_clip_max
+                and current_pre_roll + 1e-6 < distribution_preparation_pre_roll
+            ):
+                desired_start = max(0.0, execution_anchor - distribution_preparation_pre_roll)
+                if desired_start < candidate.start:
+                    candidate.start = desired_start
+                    candidate.clip_boundary_reason = "distribution_preparation_pre_roll"
+                    candidate.score_breakdown.update(
+                        {
+                            "distribution_preparation_pre_roll_applied": 1.0,
+                            "distribution_preparation_pre_roll_seconds": distribution_preparation_pre_roll,
+                            "distribution_preparation_pre_roll_effective_start": candidate.start,
+                        }
+                    )
 
         if (
             candidate.accepted
