@@ -1,3 +1,14 @@
+## 0.13.32
+- Qualitäts-/Boundary-Stabilisierungsrelease mit real verifiziertem Referenzstand für die ersten 20 chronologischen Clips/Candidates; vollständige Testsuite: **209 passed, 0 failed**.
+- Preparation-Pre-Roll für kompakte Distribution-/Clearance-Cores korrigiert: die Referenzfälle 8/10 behalten nach dem finalen Core-Zuschnitt rund 2 Sekunden Vorbereitungskontext, ohne alte lange Vorläufe wiederherzustellen.
+- Recovery-Diagnostik um zeitlichen Kontext zu benachbarten akzeptierten Keeper-Candidates erweitert und daraus einen konservativen Neighbor-Context-Rescue abgeleitet; der verifizierte Recovery-Fall wird akzeptiert und auf ein kompaktes **11-Sekunden-Fenster** begrenzt.
+- Regression-Schutz bestätigt: `diagnostic-recovery-0004` und `diagnostic-recovery-0005` bleiben rejected; bereits freigegebene Clips bleiben stabil.
+- Lange, stark gemergte `catch_or_control`-Final-Overlap-Phasen verwenden konsistent einen **24-Sekunden-Core-Limit**-Pfad; der Referenzfall Clip 20 liegt bei 24 Sekunden.
+- Keine Candidate-ID-, Clipnummer-, Dateinamen- oder Timestamp-Hardcodings; Regeln bleiben generalisierbar.
+- Performance-Basis unverändert: PyTorch FP32, OpenCV-Prefetch und Packed-Result-Conversion bleiben Produktionspfad; weitere Mikrooptimierungen sind gegenüber breiter Qualitätsvalidierung nachrangig.
+- Nächster Schritt: Clips ab 21 prüfen und anschließend mehrere unabhängige Videos validieren. Fachliche Nutzerpräferenzen sollen künftig bevorzugt über konfigurierbare Policy-/Boundary-Regeln statt über neue Code-Sonderfälle abgebildet werden.
+- Debug-Archivname: `goalkeeper_highlights_debug_v0.13.32.zip`.
+
 ## 0.13.31
 - Credit-effizienter Logik-/Boundary-Release ohne Realvideo-Läufe durch Junie (`MAX_REAL_VIDEO_RUNS=0`): Fokus ausschließlich auf Clip-Klassen 12/15/17/20 bei unveränderter Performance-Basis (FP32, Prefetch, Packed, bestehender Trackpfad).
 - Restart-Relevance-Guard verfeinert: `irrelevant_outside_box_restart` wird für stark verifizierte Distribution-Phasen konservativ überstimmt (Kontakt/Possession/Interaction/Ball-Confidence plus Release-Signal), während schwache isolierte Restarts weiterhin rejected bleiben.

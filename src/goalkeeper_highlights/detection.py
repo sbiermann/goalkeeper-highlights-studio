@@ -116,6 +116,9 @@ def _has_contextual_recovery_rescue(candidate: Candidate, clips_cfg: dict[str, A
     min_keeper_motion = float(validation.get("recovery_context_rescue_min_keeper_motion", 0.18))
     min_contacts = int(validation.get("recovery_context_rescue_min_contact_frames", 1))
     max_window_seconds = float(validation.get("recovery_context_rescue_max_window_seconds", 3.5))
+    neighbor_max_distance = float(validation.get("recovery_context_neighbor_max_distance", 1.10))
+    neighbor_previous_gap = float(validation.get("recovery_context_neighbor_previous_gap_seconds", 45.0))
+    neighbor_next_gap = float(validation.get("recovery_context_neighbor_next_gap_seconds", 60.0))
 
     action_start = candidate.action_start or candidate.trigger_time
     action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
@@ -124,14 +127,48 @@ def _has_contextual_recovery_rescue(candidate: Candidate, clips_cfg: dict[str, A
     recovery_window_span = max(0.0, recovery_window_end - recovery_window_start)
     event_margin = candidate.event_score - candidate.acceptance_threshold
 
-    return (
+    base_evidence = (
         event_margin >= min_event_margin
         and candidate.ball_confidence >= min_ball_confidence
-        and candidate.min_normalized_distance <= max_distance
         and candidate.keeper_motion >= min_keeper_motion
         and candidate.contact_frames >= min_contacts
         and recovery_window_span <= max_window_seconds
     )
+    if not base_evidence:
+        return False
+
+    if candidate.min_normalized_distance <= max_distance:
+        return True
+
+    # A slightly wider diagnostic distance is only accepted when the recovery
+    # window is embedded in a coherent keeper sequence: a recent accepted
+    # keeper interaction followed by a nearby restart/distribution. This keeps
+    # the normal distance guard strict while allowing sparse diagnostic windows
+    # that are contextually part of a genuine keeper phase.
+    previous_context_categories = {
+        "ball_contact",
+        "interaction",
+        "catch_or_control",
+        "cross_claim_or_high_catch",
+        "save_or_deflection",
+        "diving_save",
+        "recovery_keeper_interaction",
+    }
+    next_context_categories = {"distribution", "goalkeeper_distribution", "keeper_clearance"}
+    neighbor_context = (
+        candidate.min_normalized_distance <= neighbor_max_distance
+        and 0.0 <= candidate.nearest_previous_accepted_keeper_gap <= neighbor_previous_gap
+        and candidate.nearest_previous_accepted_category in previous_context_categories
+        and 0.0 <= candidate.nearest_next_accepted_keeper_gap <= neighbor_next_gap
+        and candidate.nearest_next_accepted_category in next_context_categories
+    )
+    if neighbor_context:
+        candidate.score_breakdown["recovery_neighbor_context_rescue"] = 1.0
+        candidate.score_breakdown["recovery_neighbor_previous_gap"] = candidate.nearest_previous_accepted_keeper_gap
+        candidate.score_breakdown["recovery_neighbor_next_gap"] = candidate.nearest_next_accepted_keeper_gap
+        return True
+
+    return False
 
 # v0.13.12: Secondary path for recovery candidates with unreliable possession_duration
 def find_recovery_distribution_continuation(candidate: Candidate, items: list[Candidate], clips_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -1790,6 +1827,10 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         8.0,
         float(clips_cfg.get("distribution_preparation_max_clip_seconds", 18.0)),
     )
+    distribution_compact_preparation_min_possession = max(
+        0.0,
+        float(clips_cfg.get("distribution_compact_preparation_min_possession_seconds", 5.0)),
+    )
     distribution_restart_rescue_extra_tail = max(
         0.0,
         float(clips_cfg.get("distribution_restart_rescue_extra_tail_seconds", 1.0)),
@@ -2106,34 +2147,58 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                 )
 
         # Apply preparation context after compact-core trimming so the final
-        # boundary retains a small lead-in before the actual restart execution.
+        # boundary retains a small lead-in before the visible restart execution.
+        # Long merged distributions use the compact-core start itself as the
+        # execution boundary; their original trigger can be many seconds earlier.
+        compact_core_applied = float(candidate.score_breakdown.get("distribution_compact_core_applied", 0.0)) > 0.0
         if (
             candidate.accepted
             and candidate.category in {"distribution", "goalkeeper_distribution", "keeper_clearance"}
-            and len(candidate.merged_from) <= 1
+            and (len(candidate.merged_from) <= 1 or compact_core_applied)
         ):
             action_start = candidate.action_start or candidate.trigger_time
             action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
             action_duration = max(0.0, action_end - action_start)
             clip_duration = max(0.0, candidate.end - candidate.start)
-            execution_anchor = candidate.trigger_time
-            current_pre_roll = max(0.0, execution_anchor - candidate.start)
-            if (
-                action_duration <= distribution_preparation_action_max
-                and clip_duration <= distribution_preparation_clip_max
-                and current_pre_roll + 1e-6 < distribution_preparation_pre_roll
-            ):
-                desired_start = max(0.0, execution_anchor - distribution_preparation_pre_roll)
-                if desired_start < candidate.start:
-                    candidate.start = desired_start
-                    candidate.clip_boundary_reason = "distribution_preparation_pre_roll"
-                    candidate.score_breakdown.update(
-                        {
-                            "distribution_preparation_pre_roll_applied": 1.0,
-                            "distribution_preparation_pre_roll_seconds": distribution_preparation_pre_roll,
-                            "distribution_preparation_pre_roll_effective_start": candidate.start,
-                        }
-                    )
+
+            if compact_core_applied:
+                # Only restore preparation context for long-control distributions.
+                # Short restart-rescue distributions (for example an already
+                # compact 15 s clip) must stay compact.
+                if candidate.possession_duration >= distribution_compact_preparation_min_possession:
+                    desired_start = max(0.0, candidate.start - distribution_preparation_pre_roll)
+                    if distribution_preparation_pre_roll > 0.0 and desired_start < candidate.start:
+                        candidate.start = desired_start
+                        candidate.clip_boundary_reason = "distribution_preparation_pre_roll"
+                        candidate.score_breakdown.update(
+                            {
+                                "distribution_preparation_pre_roll_applied": 1.0,
+                                "distribution_preparation_pre_roll_seconds": distribution_preparation_pre_roll,
+                                "distribution_preparation_pre_roll_anchor": "compact_core_start",
+                                "distribution_preparation_min_possession_seconds": distribution_compact_preparation_min_possession,
+                                "distribution_preparation_pre_roll_effective_start": candidate.start,
+                            }
+                        )
+            else:
+                execution_anchor = candidate.trigger_time
+                current_pre_roll = max(0.0, execution_anchor - candidate.start)
+                if (
+                    action_duration <= distribution_preparation_action_max
+                    and clip_duration <= distribution_preparation_clip_max
+                    and current_pre_roll + 1e-6 < distribution_preparation_pre_roll
+                ):
+                    desired_start = max(0.0, execution_anchor - distribution_preparation_pre_roll)
+                    if desired_start < candidate.start:
+                        candidate.start = desired_start
+                        candidate.clip_boundary_reason = "distribution_preparation_pre_roll"
+                        candidate.score_breakdown.update(
+                            {
+                                "distribution_preparation_pre_roll_applied": 1.0,
+                                "distribution_preparation_pre_roll_seconds": distribution_preparation_pre_roll,
+                                "distribution_preparation_pre_roll_anchor": "trigger_time",
+                                "distribution_preparation_pre_roll_effective_start": candidate.start,
+                            }
+                        )
 
         if (
             candidate.accepted
@@ -2154,6 +2219,30 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                         "recovery_context_rescue_window_applied": 1.0,
                         "recovery_context_rescue_pre_roll_seconds": recovery_context_rescue_pre_roll_seconds,
                         "recovery_context_rescue_post_roll_seconds": recovery_context_rescue_post_roll_seconds,
+                    }
+                )
+
+        # Neighbor-context rescues are deliberately conservative. Preserve the
+        # already accepted end boundary, but allow one additional second of
+        # lead-in so the keeper action is visible before the diagnostic window.
+        if (
+            candidate.accepted
+            and candidate.category == "recovery_uncovered_activity"
+            and float(candidate.score_breakdown.get("recovery_neighbor_context_rescue", 0.0)) > 0.0
+        ):
+            action_start = candidate.action_start or candidate.trigger_time
+            extra_pre_roll = max(0.0, float(clips_cfg.get("recovery_neighbor_context_extra_pre_roll_seconds", 1.0)))
+            current_pre_roll = max(0.0, action_start - candidate.start)
+            desired_pre_roll = current_pre_roll + extra_pre_roll
+            desired_start = max(0.0, action_start - desired_pre_roll)
+            if extra_pre_roll > 0.0 and desired_start < candidate.start:
+                candidate.start = desired_start
+                candidate.clip_boundary_reason = "recovery_neighbor_context_pre_roll"
+                candidate.score_breakdown.update(
+                    {
+                        "recovery_neighbor_context_pre_roll_applied": 1.0,
+                        "recovery_neighbor_context_extra_pre_roll_seconds": extra_pre_roll,
+                        "recovery_neighbor_context_pre_roll_effective_start": candidate.start,
                     }
                 )
 

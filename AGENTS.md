@@ -215,6 +215,18 @@ The primary optimization target is recall of missed goalkeeper saves. Every succ
 - Neue Boundary-Defaults in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` synchronisiert; keine Candidate-ID-/Timestamp-Hardcodings.
 - Debug-Paketname angehoben auf `goalkeeper_highlights_debug_v0.13.30.zip`.
 
+
+## Version 0.13.32
+
+- 0.13.32 ist der verifizierte Qualitäts-Baseline-Stand für die ersten 20 chronologischen Clips/Candidates des Referenzmaterials; vollständige Testsuite: **209 passed, 0 failed**.
+- Preparation-Pre-Roll für kompakte Distribution-/Clearance-Cores muss nach allen start-verändernden Core-/Boundary-Schritten erhalten bleiben. Kein Rückfall auf alte lange Vorläufe.
+- Recovery-Rescue darf schwache globale Thresholds nicht pauschal lockern. Neighbor-Context darf nur konservativ als zusätzliche Evidenz dienen; die bekannten Gegenbeispiele `diagnostic-recovery-0004` und `diagnostic-recovery-0005` müssen rejected bleiben.
+- Der verifizierte Neighbor-Context-Recovery-Fall verwendet ein kompaktes 11-Sekunden-Fenster; der lange `catch_or_control`-Final-Overlap-Referenzfall bleibt auf 24 Sekunden begrenzt.
+- Never hardcode candidate ids, clip numbers, filenames or match timestamps in production logic. Reale Candidate-Werte dürfen nur in Tests/Fixtures zur Regression-Nachbildung verwendet werden.
+- PyTorch FP32 + OpenCV-Prefetch + Packed-Result-Conversion bleiben Produktionsbasis. Performancearbeit nur wieder priorisieren, wenn ein Kandidat realistisch einen klaren End-to-End-Hebel (Richtwert >=5%) verspricht und fachliche Äquivalenz gesichert ist.
+- Nächster Fokus ist breite Qualitätsvalidierung: zuerst Clips 21+, danach zusätzliche Videos/Kameraläufe. Nicht weiter auf das eine Referenzmatch überoptimieren.
+- Fachliche Anpassungen sollen künftig bevorzugt über konfigurierbare Policy-/Boundary-Parameter bzw. Profile erfolgen; neue Code-Sonderfälle nur, wenn eine generalisierbare Regel nachweisbar nötig ist.
+
 ## Version 0.13.31
 
 - Credit-effizienter Korrektur-Release nur für die Zielklassen um Clip 12/15/17/20; keine Realvideo-Läufe durch Junie (`MAX_REAL_VIDEO_RUNS=0`) und keine Performancearbeit.

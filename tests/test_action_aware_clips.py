@@ -303,6 +303,76 @@ def test_long_multi_distribution_is_trimmed_to_compact_core_window():
     assert result[0].clip_boundary_reason == "distribution_compact_core_window"
 
 
+
+def test_compact_distribution_core_keeps_two_second_preparation_context_like_raw_0021():
+    candidate = Candidate(
+        start=622.08,
+        end=655.28,
+        trigger_time=628.08,
+        min_normalized_distance=0.0,
+        keeper_track_id=1,
+        accepted=True,
+        category="distribution",
+        action_start=628.08,
+        action_end=651.28,
+        keeper_label="Keeper #1",
+        clip_end_reason="controlled_release",
+        merged_from=["raw-0022"],
+        departure_speed=6.21,
+        possession_duration=18.8,
+    )
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 6.0},
+        "category_post_roll_seconds": {"distribution": 12.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "distribution_preparation_pre_roll_seconds": 2.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].start == 638.28
+    assert result[0].end == 655.28
+    assert result[0].clip_boundary_reason == "distribution_preparation_pre_roll"
+    assert result[0].score_breakdown["distribution_preparation_pre_roll_anchor"] == "compact_core_start"
+
+
+def test_compact_multi_merge_distribution_keeps_two_second_preparation_context_like_raw_0025():
+    candidate = Candidate(
+        start=708.4,
+        end=744.16,
+        trigger_time=714.4,
+        min_normalized_distance=0.0,
+        keeper_track_id=1,
+        accepted=True,
+        category="distribution",
+        action_start=714.4,
+        action_end=740.16,
+        keeper_label="Keeper #1",
+        clip_end_reason="controlled_release",
+        merged_from=["raw-0026", "raw-0027", "raw-0028", "raw-0029"],
+        departure_speed=7.39,
+        possession_duration=6.8,
+    )
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 6.0},
+        "category_post_roll_seconds": {"distribution": 12.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "distribution_preparation_pre_roll_seconds": 2.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].start == 727.16
+    assert result[0].end == 744.16
+    assert result[0].clip_boundary_reason == "distribution_preparation_pre_roll"
+    assert result[0].score_breakdown["distribution_preparation_pre_roll_anchor"] == "compact_core_start"
+
 def test_recovery_contextual_rescue_gets_compact_window_instead_of_generic_recovery_span():
     candidate = Candidate(
         start=1566.0,
@@ -333,6 +403,76 @@ def test_recovery_contextual_rescue_gets_compact_window_instead_of_generic_recov
     assert result[0].accepted is True
     assert (result[0].end - result[0].start) == 14.0
     assert result[0].clip_boundary_reason == "recovery_context_rescue_window"
+
+
+def test_neighbor_context_recovery_adds_one_second_pre_roll_without_extending_end():
+    candidate = Candidate(
+        start=1570.0,
+        end=1580.0,
+        trigger_time=1574.0,
+        min_normalized_distance=1.02348,
+        keeper_track_id=1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1574.0,
+        action_end=1576.0,
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        score_breakdown={
+            "recovery_contextual_rescue_applied": 1.0,
+            "recovery_neighbor_context_rescue": 1.0,
+        },
+    )
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"recovery_uncovered_activity": 4.0},
+        "category_post_roll_seconds": {"recovery_uncovered_activity": 4.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "recovery_neighbor_context_extra_pre_roll_seconds": 1.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].start == 1569.0
+    assert result[0].end == 1580.0
+    assert (result[0].end - result[0].start) == 11.0
+    assert result[0].clip_boundary_reason == "recovery_neighbor_context_pre_roll"
+    assert result[0].score_breakdown["recovery_neighbor_context_pre_roll_applied"] == 1.0
+
+
+def test_contextual_recovery_without_neighbor_rescue_does_not_get_extra_pre_roll():
+    candidate = Candidate(
+        start=1570.0,
+        end=1580.0,
+        trigger_time=1574.0,
+        min_normalized_distance=0.80,
+        keeper_track_id=1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1574.0,
+        action_end=1576.0,
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        score_breakdown={"recovery_contextual_rescue_applied": 1.0},
+    )
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"recovery_uncovered_activity": 4.0},
+        "category_post_roll_seconds": {"recovery_uncovered_activity": 4.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "recovery_neighbor_context_extra_pre_roll_seconds": 1.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert len(result) == 1
+    assert result[0].start == 1570.0
+    assert result[0].end == 1580.0
 
 
 def test_long_multi_catch_final_overlap_phase_is_core_trimmed():
