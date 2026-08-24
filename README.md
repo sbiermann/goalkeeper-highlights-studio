@@ -1,6 +1,6 @@
 # Goalkeeper Highlights Studio
 
-**Version 0.13.22**
+**Version 0.13.32**
 
 Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11 (Ultralytics), ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-Vision-Modelle.
 
@@ -15,9 +15,22 @@ Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-High
 - **Recovery-Pass**: Zusätzlicher Durchlauf zur Erkennung möglicherweise übersehener Aktionen.
 - **Clip-Erstellung**: Automatischer Schnitt und Zusammenbau der Highlights mit FFmpeg.
 - **Umfangreiche Berichte**: HTML-Reports mit eingebetteten Videos (HTML5-Player), SQLite-Datenbank und JSON/CSV-Exporte.
-- **Diagnose**: Automatisches Debug-Paket (`goalkeeper_highlights_debug_v0.13.22.zip`) für detaillierte Fehleranalysen ohne Videodateien.
+- **Diagnose**: Automatisches Debug-Paket (`goalkeeper_highlights_debug_v0.13.32.zip`) für detaillierte Fehleranalysen ohne Videodateien.
 
 *Hinweis: Dies ist ein experimentelles Projekt. Die Ergebnisse sollten stets manuell überprüft werden.*
+
+## Verifizierter 0.13.32-Referenzstand
+
+Version 0.13.32 schließt die aktuelle Qualitäts-Stabilisierungsrunde auf dem Referenzmaterial ab. Die ersten 20 chronologischen Clips/Candidates wurden manuell gegen das Video geprüft und bilden die neue fachliche Baseline.
+
+- Distribution-/Clearance-Clips behalten bei kompakten Action-Cores einen kleinen Preparation-Pre-Roll; die korrigierten Fälle 8 und 10 starten rund 2 Sekunden vor der eigentlichen Ausführung.
+- Ein konservativer Neighbor-Context-Recovery-Rescue kann einen plausiblen `recovery_uncovered_activity`-Candidate retten, ohne die Vergleichsfälle `diagnostic-recovery-0004` und `diagnostic-recovery-0005` zu akzeptieren. Der verifizierte Recovery-Clip endet als kompaktes 11-Sekunden-Fenster.
+- Sehr lange, stark gemergte `catch_or_control`-Final-Overlap-Phasen werden auf einen relevanten Core begrenzt; der verifizierte Referenzfall liegt bei 24 Sekunden.
+- Die Regeln bleiben generalisierbar: keine Candidate-ID-, Clipnummer-, Dateinamen- oder Timestamp-Hardcodings.
+- Vollständiger Regressionsteststand: **209 passed, 0 failed**.
+- Produktionsbasis bleibt PyTorch FP32 mit OpenCV-Decoder-Prefetch und Packed-Result-Conversion; weitere Mikro-Performancearbeit ist vorerst nachrangig.
+
+Nächster Qualitätsfokus ist die Prüfung der weiteren Clips ab 21 und danach die Validierung mit zusätzlichen, unabhängigen Videos. Künftige fachliche Präferenzen sollen nach Möglichkeit über konfigurierbare Policy-/Boundary-Regeln statt über neue Code-Sonderfälle steuerbar werden.
 
 ## Funktionsweise der Pipeline
 
@@ -114,7 +127,7 @@ Die Ergebnisse werden im Ordner `<video>_goalkeeper_highlights/` gespeichert:
 ## Debug-Paket
 
 Nach jedem erfolgreichen Lauf wird automatisch ein Debug-Paket erstellt:
-`goalkeeper_highlights_debug_v0.13.21.zip`
+`goalkeeper_highlights_debug_v0.13.32.zip`
 
 Dieses Paket enthält **keine Videodateien**, sondern wichtige Diagnosedaten:
 - `candidate_pipeline_trace.json`: Komplette Historie aller Kandidaten.

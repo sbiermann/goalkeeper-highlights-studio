@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.31, focused on credit-efficient false-negative rescue and core-boundary correction for clips 12/15/17/20 with unchanged performance/runtime defaults.
+Current stabilization release: 0.13.32. Clips/Candidates 1–20 of the reference material are the verified quality baseline; next focus is clips 21+ and validation on additional videos. Performance/runtime defaults remain unchanged.
 
 # Roadmap
 
@@ -8,6 +8,13 @@ Current stabilization release: 0.13.31, focused on credit-efficient false-negati
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.32 is completed as the verified quality/boundary baseline for the first 20 chronological clips/candidates of the reference material; full regression suite: **209 passed, 0 failed**.
+- 0.13.32 outcome: compact distribution/clearance cores preserve a small preparation pre-roll after final core trimming; the verified cases 8/10 retain about 2 seconds of useful preparation context.
+- 0.13.32 recovery outcome: conservative neighbor-context evidence rescues the verified uncovered-activity case while `diagnostic-recovery-0004` and `diagnostic-recovery-0005` remain rejected; the accepted recovery clip uses a compact 11-second window.
+- 0.13.32 long-phase outcome: the verified long `catch_or_control` final-overlap case is limited to a 24-second relevant core.
+- 0.13.32 keeps PyTorch FP32 + OpenCV prefetch + packed conversion as the production basis; no new performance default is introduced.
+- No candidate-id, clip-number, filename or timestamp hardcodings. Future quality preferences should increasingly be expressed through configurable policy/boundary rules rather than one-off code branches.
+- Next validation milestone: review clips 21+ on the current reference match, then run the same acceptance/boundary review on additional independent videos before further tuning or micro-performance work.
 - Version 0.13.31 is completed as a credit-efficient logic/boundary release for clip classes 12/15/17/20 with strict regression protection for already approved clips.
 - 0.13.31 outcome: strong merged distribution phases can survive outside-box restart rejection when multi-signal release evidence is present; weak isolated restart situations remain rejected.
 - 0.13.31 adds conservative contextual recovery rescue for compact uncovered-activity windows while preserving rejection of unsupported recovery windows.

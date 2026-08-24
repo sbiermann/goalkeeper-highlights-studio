@@ -279,6 +279,118 @@ def test_clip_14_like_recovery_stays_rejected_with_weak_contextual_signal():
     assert candidate.rejection_reason == "insufficient_recovery_interaction_score"
 
 
+
+def test_contextual_recovery_neighbor_rescue_accepts_clip_17_like_wider_distance():
+    candidate = Candidate(
+        1566.0,
+        1585.0,
+        1574.0,
+        1.02348,
+        1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1574.0,
+        action_end=1576.0,
+        recovery_window_start=1574.0,
+        recovery_window_end=1576.0,
+        event_score=0.49385,
+        acceptance_threshold=0.42,
+        interaction_score=0.149,
+        ball_confidence=0.29393,
+        keeper_motion=0.19838,
+        contact_frames=1,
+        possession_duration=0.0,
+        nearest_previous_accepted_keeper_gap=40.96,
+        nearest_previous_accepted_category="ball_contact",
+        nearest_next_accepted_keeper_gap=57.76,
+        nearest_next_accepted_category="distribution",
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "minimum_recovery_interaction_score": 0.45,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.accepted is True
+    assert candidate.score_breakdown.get("recovery_contextual_rescue_applied") == 1.0
+    assert candidate.score_breakdown.get("recovery_neighbor_context_rescue") == 1.0
+
+
+def test_contextual_recovery_neighbor_rescue_keeps_clip_13_like_distribution_context_rejected():
+    candidate = Candidate(
+        958.0,
+        977.0,
+        966.0,
+        1.05951,
+        1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=966.0,
+        action_end=968.0,
+        recovery_window_start=966.0,
+        recovery_window_end=968.0,
+        event_score=0.69640,
+        acceptance_threshold=0.42,
+        interaction_score=0.149,
+        ball_confidence=0.58185,
+        keeper_motion=0.32992,
+        contact_frames=1,
+        possession_duration=0.0,
+        nearest_previous_accepted_keeper_gap=26.48,
+        nearest_previous_accepted_category="distribution",
+        nearest_next_accepted_keeper_gap=507.28,
+        nearest_next_accepted_category="distribution",
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "minimum_recovery_interaction_score": 0.45,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.accepted is False
+    assert candidate.rejection_reason == "insufficient_recovery_interaction_score"
+
+
+def test_contextual_recovery_neighbor_rescue_keeps_clip_14_like_weak_context_rejected():
+    candidate = Candidate(
+        1188.0,
+        1207.0,
+        1196.0,
+        0.40987,
+        1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1196.0,
+        action_end=1198.0,
+        recovery_window_start=1196.0,
+        recovery_window_end=1198.0,
+        event_score=0.43948,
+        acceptance_threshold=0.42,
+        interaction_score=0.149,
+        ball_confidence=0.32309,
+        keeper_motion=0.11136,
+        contact_frames=1,
+        possession_duration=0.0,
+        nearest_previous_accepted_keeper_gap=256.48,
+        nearest_previous_accepted_category="distribution",
+        nearest_next_accepted_keeper_gap=277.28,
+        nearest_next_accepted_category="distribution",
+    )
+    cfg = {
+        "interaction_validation": {
+            "enabled": True,
+            "minimum_recovery_interaction_score": 0.45,
+        }
+    }
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.accepted is False
+    assert candidate.rejection_reason == "insufficient_recovery_interaction_score"
+
 class StaticFakeStore:
     def recovery_observations(self):
         return [
