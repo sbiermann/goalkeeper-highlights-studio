@@ -1,4 +1,4 @@
-from goalkeeper_highlights.detection import recover_missed_keeper_actions, _has_real_keeper_interaction
+from goalkeeper_highlights.detection import recover_missed_keeper_actions, _has_real_keeper_interaction, rescue_classic_keeper_actions
 from goalkeeper_highlights.models import Candidate
 
 
@@ -128,6 +128,10 @@ def test_contextual_recovery_rescue_accepts_compact_valid_recovery_window():
         keeper_motion=0.198,
         contact_frames=1,
         possession_duration=0.0,
+        nearest_previous_accepted_keeper_gap=40.0,
+        nearest_previous_accepted_category="ball_contact",
+        nearest_next_accepted_keeper_gap=50.0,
+        nearest_next_accepted_category="distribution",
     )
     cfg = {
         "interaction_validation": {
@@ -163,6 +167,10 @@ def test_contextual_recovery_rescue_accepts_clip_17_like_long_action_span_with_c
         keeper_motion=0.198,
         contact_frames=1,
         possession_duration=0.0,
+        nearest_previous_accepted_keeper_gap=40.0,
+        nearest_previous_accepted_category="ball_contact",
+        nearest_next_accepted_keeper_gap=50.0,
+        nearest_next_accepted_category="distribution",
     )
     cfg = {
         "interaction_validation": {
@@ -406,3 +414,152 @@ class StaticFakeStore:
 def test_recovery_pass_does_not_accept_static_overlap():
     config = {"event_engine": {"recovery_pass": {"enabled": True, "minimum_close_frames": 2}}}
     assert recover_missed_keeper_actions(StaticFakeStore(), [], 100.0, config) == []
+
+
+def test_diagnostic_recovery_close_geometry_without_neighbor_context_is_rejected_like_false_positive_21():
+    candidate = Candidate(
+        1842.0, 1861.0, 1850.0, 0.14610, 1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=1850.0,
+        action_end=1852.0,
+        recovery_window_start=1850.0,
+        recovery_window_end=1852.0,
+        event_score=0.71109,
+        acceptance_threshold=0.42,
+        ball_confidence=0.45121,
+        keeper_motion=0.49822,
+        contact_frames=1,
+        nearest_previous_accepted_keeper_gap=160.32,
+        nearest_previous_accepted_category="catch_or_control",
+        nearest_next_accepted_keeper_gap=87.28,
+        nearest_next_accepted_category="catch_or_control",
+    )
+    cfg = {"interaction_validation": {"enabled": True, "minimum_recovery_interaction_score": 0.45}}
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.rejection_reason == "insufficient_recovery_interaction_score"
+
+
+def test_diagnostic_recovery_two_frame_motion_does_not_bypass_recovery_threshold_like_false_positive_30():
+    candidate = Candidate(
+        2356.0, 2379.0, 2364.0, 0.95133, 1,
+        accepted=True,
+        category="recovery_uncovered_activity",
+        recovery_candidate=True,
+        action_start=2364.0,
+        action_end=2370.0,
+        recovery_window_start=2364.0,
+        recovery_window_end=2370.0,
+        event_score=0.64511,
+        acceptance_threshold=0.42,
+        ball_confidence=0.46379,
+        keeper_motion=0.78102,
+        contact_frames=2,
+        nearest_previous_accepted_keeper_gap=64.88,
+        nearest_previous_accepted_category="catch_or_control",
+        nearest_next_accepted_keeper_gap=197.76,
+        nearest_next_accepted_category="distribution",
+    )
+    cfg = {"interaction_validation": {"enabled": True, "minimum_recovery_interaction_score": 0.45}}
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.rejection_reason == "insufficient_recovery_interaction_score"
+
+
+def test_strong_outside_box_catch_control_is_rescued_like_raw_0057():
+    candidate = Candidate(
+        1935.28, 1971.0, 1939.28, 0.0, 1,
+        accepted=True,
+        category="catch_or_control",
+        contact_frames=71,
+        possession_duration=4.96,
+        keeper_y_normalized=0.514,
+        approach_speed=0.0664,
+        departure_speed=0.0,
+        direction_change=0.0,
+        keeper_motion=2.285,
+        ball_confidence=0.765,
+    )
+    cfg = {"interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08, "outside_box_restart_min_seconds": 2.5}}
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.score_breakdown.get("restart_control_rescue_applied") == 1.0
+    assert candidate.score_breakdown.get("restart_control_rescue_original_start") == 1935.28
+
+
+def test_strong_outside_box_catch_control_low_motion_is_rescued_like_raw_0069():
+    candidate = Candidate(
+        2160.16, 2171.44, 2164.16, 0.0, 1,
+        accepted=True,
+        category="catch_or_control",
+        contact_frames=29,
+        possession_duration=2.72,
+        keeper_y_normalized=0.513,
+        approach_speed=0.0,
+        departure_speed=0.0,
+        direction_change=0.0,
+        keeper_motion=0.061,
+        ball_confidence=0.683,
+    )
+    cfg = {"interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08, "outside_box_restart_min_seconds": 2.5}}
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.score_breakdown.get("restart_control_rescue_applied") == 1.0
+
+
+def test_outside_box_control_rescue_still_rejects_weak_ball_control():
+    candidate = Candidate(
+        100.0, 112.0, 104.0, 0.1, 1,
+        accepted=True, category="catch_or_control", contact_frames=21, possession_duration=2.7,
+        keeper_y_normalized=0.5, approach_speed=0.0, departure_speed=0.0, direction_change=0.0,
+        keeper_motion=0.02, ball_confidence=0.40,
+    )
+    cfg = {"interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08, "outside_box_restart_min_seconds": 2.5}}
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.rejection_reason == "irrelevant_outside_box_restart"
+
+
+
+def test_short_lateral_contact_rescue_accepts_raw_0068_like_interaction():
+    candidate = Candidate(
+        2141.92, 2150.56, 2145.92, 0.43925, 2,
+        accepted=False, category="interaction", contact_frames=2,
+        ball_confidence=0.37297, identity_confidence=0.58591,
+        keeper_motion=0.06313, keeper_lateral_motion=0.19202,
+        possession_duration=0.08, event_score=0.19421,
+        acceptance_threshold=0.38, rejection_reason="event_score_below_category_threshold",
+        action_start=2145.92, action_end=2146.56,
+    )
+    cfg = {
+        "classic_action_rescue": {"enabled": True},
+        "interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08},
+    }
+    rescue_classic_keeper_actions([candidate], cfg)
+    assert candidate.accepted is True
+    assert candidate.score_breakdown.get("classic_action_rescue") == 1.0
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.accepted is True
+
+
+def test_short_lateral_contact_rescue_keeps_known_weak_interactions_rejected():
+    cases = [
+        Candidate(129.44, 138.16, 133.44, 0.49150, 1, accepted=False, category="interaction",
+                  contact_frames=2, ball_confidence=0.30920, identity_confidence=0.95974,
+                  keeper_motion=0.00692, keeper_lateral_motion=0.01584, possession_duration=0.16,
+                  event_score=0.21474, acceptance_threshold=0.38,
+                  rejection_reason="event_score_below_category_threshold"),
+        Candidate(691.12, 708.08, 695.12, 0.42133, 1, accepted=False, category="interaction",
+                  contact_frames=4, ball_confidence=0.66133, identity_confidence=0.93996,
+                  keeper_motion=0.01172, keeper_lateral_motion=0.01805, possession_duration=0.08,
+                  event_score=0.21955, acceptance_threshold=0.38,
+                  rejection_reason="event_score_below_category_threshold"),
+        Candidate(1645.52, 1654.24, 1649.52, 0.0, 1, accepted=False, category="interaction",
+                  contact_frames=2, ball_confidence=0.28754, identity_confidence=0.81344,
+                  keeper_motion=0.00210, keeper_lateral_motion=0.00585, possession_duration=0.16,
+                  event_score=0.29626, acceptance_threshold=0.38,
+                  rejection_reason="event_score_below_category_threshold"),
+    ]
+    cfg = {
+        "classic_action_rescue": {"enabled": True},
+        "interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08},
+    }
+    rescue_classic_keeper_actions(cases, cfg)
+    assert all(candidate.accepted is False for candidate in cases)

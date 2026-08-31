@@ -341,3 +341,190 @@ def test_chaining_pass_different_keepers():
     assert len(results) == 2
     assert results[0].keeper_label == "Keeper #1"
     assert results[1].keeper_label == "Keeper #2"
+
+def test_classic_rescue_does_not_use_extended_phase_merge_window_like_raw_0068_0069():
+    rescued_contact = Candidate(
+        candidate_id="rescued-contact",
+        start=2141.92,
+        end=2150.56,
+        trigger_time=2145.92,
+        action_start=2145.92,
+        action_end=2146.56,
+        accepted=True,
+        category="interaction",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.43925,
+        keeper_track_id=2,
+        contact_frames=2,
+        possession_duration=0.08,
+        ball_confidence=0.37297,
+        keeper_motion=0.06313,
+        keeper_lateral_motion=0.19202,
+        score_breakdown={"classic_action_rescue": 1.0},
+    )
+    later_control = Candidate(
+        candidate_id="later-control",
+        start=2160.16,
+        end=2171.44,
+        trigger_time=2164.16,
+        action_start=2164.16,
+        action_end=2167.44,
+        accepted=True,
+        category="catch_or_control",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.0,
+        keeper_track_id=2,
+        contact_frames=29,
+        possession_duration=2.72,
+        ball_confidence=0.683,
+        keeper_motion=0.061,
+    )
+
+    results = extend_and_chain_clip_windows(
+        [rescued_contact, later_control],
+        3000.0,
+        {
+            "interaction_validation": {"enabled": False},
+            "continuation_gap_seconds": 12.0,
+            "phase_merge_gap_seconds": 30.0,
+            "max_dynamic_clip_seconds": 45.0,
+            "category_pre_roll_seconds": {"interaction": 4.0, "catch_or_control": 10.0},
+            "category_post_roll_seconds": {"interaction": 4.0, "catch_or_control": 11.0},
+        },
+    )
+
+    accepted = [candidate for candidate in results if candidate.accepted]
+    assert len(accepted) == 2
+    assert [candidate.candidate_id for candidate in accepted] == ["rescued-contact", "later-control"]
+    assert accepted[0].start == pytest.approx(2141.92)
+    assert accepted[0].end == pytest.approx(2150.56)
+    assert accepted[1].score_breakdown["phase_merge_classic_rescue_gap_guard"] == 1.0
+    assert "later-control" not in accepted[0].merged_from
+
+
+def test_classic_rescue_can_still_chain_inside_normal_continuation_window():
+    rescued_contact = Candidate(
+        candidate_id="rescued-contact",
+        start=100.0,
+        end=108.0,
+        trigger_time=104.0,
+        action_start=104.0,
+        action_end=105.0,
+        accepted=True,
+        category="interaction",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.3,
+        keeper_track_id=1,
+        contact_frames=2,
+        score_breakdown={"classic_action_rescue": 1.0},
+    )
+    follow_up = Candidate(
+        candidate_id="follow-up",
+        start=110.0,
+        end=118.0,
+        trigger_time=112.0,
+        action_start=112.0,
+        action_end=114.0,
+        accepted=True,
+        category="catch_or_control",
+        keeper_label="Keeper #1",
+        clip_end_reason="timeout",
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+        contact_frames=8,
+        possession_duration=1.0,
+    )
+
+    results = extend_and_chain_clip_windows(
+        [rescued_contact, follow_up],
+        500.0,
+        {
+            "interaction_validation": {"enabled": False},
+            "continuation_gap_seconds": 12.0,
+            "phase_merge_gap_seconds": 30.0,
+            "max_dynamic_clip_seconds": 45.0,
+            "category_pre_roll_seconds": {"interaction": 4.0, "catch_or_control": 10.0},
+            "category_post_roll_seconds": {"interaction": 4.0, "catch_or_control": 11.0},
+        },
+    )
+
+    assert len([candidate for candidate in results if candidate.accepted]) == 1
+    assert results[0].clip_boundary_reason == "chained_keeper_phase"
+
+
+def test_long_inactive_gap_splits_previous_action_and_routes_setup_forward_like_raw_0061_0063_0064():
+    previous = Candidate(
+        candidate_id="previous-control",
+        start=1985.20, end=2005.00, trigger_time=1995.20,
+        action_start=1995.20, action_end=1998.00,
+        accepted=True, category="catch_or_control", keeper_label="Keeper #1",
+        clip_end_reason="dynamic_idle_tail", min_normalized_distance=0.0, keeper_track_id=1,
+        contact_frames=15, possession_duration=0.80, ball_confidence=0.68,
+        interaction_score=0.78, keeper_motion=0.81,
+        merged_from=["same-action-child"],
+    )
+    setup = Candidate(
+        candidate_id="leading-setup",
+        start=2029.12, end=2038.08, trigger_time=2033.12,
+        action_start=2033.12, action_end=2034.08,
+        accepted=True, category="distribution", keeper_label="Keeper #1",
+        clip_end_reason="timeout", min_normalized_distance=0.2699, keeper_track_id=1,
+        contact_frames=6, possession_duration=0.10, ball_confidence=0.714,
+        interaction_score=0.20, keeper_motion=0.047,
+    )
+    followup = Candidate(
+        candidate_id="strong-followup",
+        start=2038.60, end=2074.40, trigger_time=2055.92,
+        action_start=2047.60, action_end=2070.40,
+        accepted=True, category="diving_save", keeper_label="Keeper #1",
+        clip_end_reason="controlled_release", min_normalized_distance=0.0, keeper_track_id=1,
+        contact_frames=95, possession_duration=4.48, ball_confidence=0.701,
+        interaction_score=1.0, keeper_motion=0.713, approach_speed=0.367,
+        departure_speed=6.95, direction_change=0.997,
+    )
+
+    results = extend_and_chain_clip_windows(
+        [previous, setup, followup],
+        3000.0,
+        {
+            "interaction_validation": {"enabled": False},
+            "continuation_gap_seconds": 12.0,
+            "phase_merge_gap_seconds": 30.0,
+            "max_dynamic_clip_seconds": 45.0,
+            "category_pre_roll_seconds": {
+                "catch_or_control": 10.0,
+                "distribution": 4.0,
+                "diving_save": 9.0,
+            },
+            "category_post_roll_seconds": {
+                "catch_or_control": 11.0,
+                # Real config gives distributions a much longer generic tail.
+                # V10 must still recognise this as compact leading context.
+                "distribution": 12.0,
+                "diving_save": 11.0,
+            },
+            "leading_context_absorb_max_gap_seconds": 1.0,
+            "phase_split_previous_pre_roll_seconds": 2.0,
+            "phase_split_previous_post_roll_seconds": 3.0,
+        },
+    )
+
+    accepted = [candidate for candidate in results if candidate.accepted]
+    assert len(accepted) == 2
+    assert [candidate.candidate_id for candidate in accepted] == ["previous-control", "strong-followup"]
+
+    first, second = accepted
+    assert first.start == pytest.approx(1993.20)
+    assert first.end == pytest.approx(2001.00)
+    assert first.clip_boundary_reason == "inactive_gap_phase_split"
+    assert first.score_breakdown["phase_split_inactive_gap_applied"] == 1.0
+
+    assert second.start == pytest.approx(2029.12)
+    assert second.end == pytest.approx(2074.40)
+    assert "leading-setup" in second.merged_from
+    assert second.score_breakdown["leading_context_absorbed"] == 1.0
+    assert second.score_breakdown["phase_merge_absorbed_leading_boundary_guard"] == 1.0
+    assert "strong-followup" not in first.merged_from

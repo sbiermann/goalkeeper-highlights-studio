@@ -1,6 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from goalkeeper_highlights.detection import (
@@ -546,3 +547,275 @@ def test_long_multi_catch_final_overlap_uses_default_24s_core_limit():
     assert len(result) == 1
     assert result[0].accepted is True
     assert (result[0].end - result[0].start) <= 25.0
+
+
+def test_restart_control_rescue_preserves_start_and_caps_long_clip_to_18_seconds():
+    candidate = Candidate(
+        start=1935.28, end=1971.0, trigger_time=1939.28, min_normalized_distance=0.0, keeper_track_id=1,
+        accepted=True, category="catch_or_control", action_start=1939.28, action_end=1962.0,
+        contact_frames=71, ball_confidence=0.765, keeper_motion=2.285, possession_duration=4.96,
+        keeper_y_normalized=0.514, approach_speed=0.0664,
+    )
+    result = extend_and_chain_clip_windows([candidate], 3000.0, {
+        "seconds_before": 4.0, "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0},
+        "category_post_roll_seconds": {"catch_or_control": 11.0},
+        "restart_control_rescue_max_clip_seconds": 18.0,
+        "interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08, "outside_box_restart_min_seconds": 2.5},
+    })
+    assert result[0].accepted is True
+    assert result[0].start == 1935.28
+    assert result[0].end == 1953.28
+    assert result[0].clip_boundary_reason == "restart_control_rescue_compact_window"
+
+
+def test_restart_control_rescue_keeps_short_existing_window_like_raw_0069():
+    candidate = Candidate(
+        start=2160.16, end=2171.44, trigger_time=2164.16, min_normalized_distance=0.0, keeper_track_id=1,
+        accepted=True, category="catch_or_control", action_start=2164.16, action_end=2167.44,
+        contact_frames=29, ball_confidence=0.683, keeper_motion=0.061, possession_duration=2.72,
+        keeper_y_normalized=0.513,
+    )
+    result = extend_and_chain_clip_windows([candidate], 3000.0, {
+        "seconds_before": 4.0, "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0},
+        "category_post_roll_seconds": {"catch_or_control": 11.0},
+        "restart_control_rescue_max_clip_seconds": 18.0,
+        "interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08, "outside_box_restart_min_seconds": 2.5},
+    })
+    assert result[0].accepted is True
+    assert result[0].start == 2160.16
+    assert result[0].end == 2171.44
+
+
+def test_rejected_leading_distribution_is_absorbed_into_immediate_strong_keeper_action():
+    leading = Candidate(
+        start=2029.12, end=2038.08, trigger_time=2033.12, min_normalized_distance=0.2699, keeper_track_id=1,
+        accepted=False, category="distribution", rejection_reason="insufficient_interaction_dynamics",
+        action_start=2033.12, action_end=2034.08, contact_frames=6, ball_confidence=0.714, keeper_motion=0.047,
+    )
+    highlight = Candidate(
+        start=2038.60, end=2074.40, trigger_time=2055.92, min_normalized_distance=0.0, keeper_track_id=1,
+        accepted=True, category="diving_save", action_start=2047.60, action_end=2070.40, contact_frames=95,
+        ball_confidence=0.701, keeper_motion=0.713, possession_duration=4.48, approach_speed=0.367,
+        departure_speed=6.95, direction_change=0.997, clip_end_reason="controlled_release",
+    )
+    result = extend_and_chain_clip_windows([leading, highlight], 3000.0, {
+        "seconds_before": 4.0, "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 4.0, "diving_save": 9.0},
+        "category_post_roll_seconds": {"distribution": 4.0, "diving_save": 11.0},
+        "leading_context_absorb_max_gap_seconds": 1.0,
+        "interaction_validation": {"enabled": False},
+    })
+    accepted = [c for c in result if c.accepted]
+    assert len(accepted) == 1
+    assert accepted[0].candidate_id == highlight.candidate_id
+    assert accepted[0].start == 2029.12
+    assert accepted[0].end == 2074.40
+    assert leading.continuation_absorbed is True
+    assert leading.absorbed_into_candidate_id == highlight.candidate_id
+    assert accepted[0].score_breakdown.get("leading_context_absorbed") == 1.0
+
+
+def test_restart_rescue_with_diagnostic_recovery_merge_is_capped_to_10_second_core():
+    candidate = Candidate(
+        start=2247.44, end=2274.0, trigger_time=2251.44, min_normalized_distance=0.0, keeper_track_id=1,
+        accepted=True, category="distribution", action_start=2251.44, action_end=2270.0, contact_frames=41,
+        ball_confidence=0.759, keeper_motion=1.566, possession_duration=3.2, departure_speed=1.116,
+        clip_end_reason="controlled_release", merged_from=["raw-child-a", "raw-child-b", "diagnostic-recovery-child"],
+        score_breakdown={"restart_relevance_rescue_applied": 1.0},
+    )
+    result = extend_and_chain_clip_windows([candidate], 3000.0, {
+        "seconds_before": 4.0, "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 4.0},
+        "category_post_roll_seconds": {"distribution": 12.0},
+        "distribution_restart_rescue_extra_tail_seconds": 1.0,
+        "restart_diagnostic_recovery_core_max_seconds": 10.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert result[0].start == 2247.44
+    assert result[0].end == 2257.44
+    assert result[0].clip_boundary_reason == "restart_diagnostic_recovery_compact_core"
+
+
+def test_restart_rescue_without_diagnostic_recovery_merge_keeps_existing_baseline_window():
+    candidate = Candidate(
+        start=919.20, end=943.52, trigger_time=924.24, min_normalized_distance=0.0, keeper_track_id=1,
+        accepted=True, category="distribution", action_start=923.20, action_end=939.52, contact_frames=64,
+        ball_confidence=0.736, keeper_motion=4.13, possession_duration=2.8, departure_speed=1.64,
+        clip_end_reason="controlled_release", merged_from=["raw-a", "raw-b", "raw-c"],
+        score_breakdown={"restart_relevance_rescue_applied": 1.0},
+    )
+    result = extend_and_chain_clip_windows([candidate], 3000.0, {
+        "seconds_before": 4.0, "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 4.0},
+        "category_post_roll_seconds": {"distribution": 12.0},
+        "distribution_restart_rescue_extra_tail_seconds": 1.0,
+        "restart_diagnostic_recovery_core_max_seconds": 10.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert result[0].start == 919.20
+    assert result[0].end == 944.52
+
+
+def test_accepted_leading_distribution_prefers_immediate_strong_followup():
+    leading = Candidate(
+        candidate_id="leading-accepted",
+        start=2029.12, end=2038.08, trigger_time=2033.12, min_normalized_distance=0.2699, keeper_track_id=1,
+        accepted=True, category="distribution", action_start=2033.12, action_end=2034.08,
+        contact_frames=6, ball_confidence=0.714, keeper_motion=0.047, interaction_score=0.20,
+        keeper_label="Keeper #1", clip_end_reason="timeout",
+    )
+    highlight = Candidate(
+        candidate_id="strong-followup",
+        start=2038.60, end=2074.40, trigger_time=2055.92, min_normalized_distance=0.0, keeper_track_id=1,
+        accepted=True, category="diving_save", action_start=2047.60, action_end=2070.40,
+        contact_frames=95, ball_confidence=0.701, keeper_motion=0.713, interaction_score=1.0,
+        possession_duration=4.48, approach_speed=0.367, departure_speed=6.95, direction_change=0.997,
+        keeper_label="Keeper #1", clip_end_reason="controlled_release",
+    )
+
+    result = extend_and_chain_clip_windows([leading, highlight], 3000.0, {
+        "seconds_before": 4.0, "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 4.0, "diving_save": 9.0},
+        "category_post_roll_seconds": {"distribution": 4.0, "diving_save": 11.0},
+        "leading_context_absorb_max_gap_seconds": 1.0,
+        "interaction_validation": {"enabled": False},
+    })
+
+    accepted = [candidate for candidate in result if candidate.accepted]
+    assert len(accepted) == 1
+    assert accepted[0].candidate_id == "strong-followup"
+    assert accepted[0].start == 2029.12
+    assert accepted[0].end == 2074.40
+    assert "leading-accepted" in accepted[0].merged_from
+    assert accepted[0].score_breakdown["leading_context_absorbed"] == 1.0
+    assert leading.continuation_absorbed is True
+    assert leading.absorbed_into_candidate_id == "strong-followup"
+
+
+def test_accepted_leading_distribution_with_expanded_planning_tail_still_routes_forward():
+    leading = Candidate(
+        candidate_id="leading-expanded-tail",
+        start=2029.12, end=2038.08, trigger_time=2033.12, min_normalized_distance=0.2699, keeper_track_id=1,
+        accepted=True, category="distribution", action_start=2033.12, action_end=2034.08,
+        contact_frames=6, ball_confidence=0.714, keeper_motion=0.047, interaction_score=0.20,
+        keeper_label="Keeper #1", clip_end_reason="timeout",
+    )
+    highlight = Candidate(
+        candidate_id="strong-followup-expanded-tail",
+        start=2043.60, end=2074.40, trigger_time=2055.92, min_normalized_distance=0.0, keeper_track_id=1,
+        accepted=True, category="diving_save", action_start=2047.60, action_end=2070.40,
+        contact_frames=95, ball_confidence=0.701, keeper_motion=0.713, interaction_score=1.0,
+        possession_duration=4.48, approach_speed=0.367, departure_speed=6.95, direction_change=0.997,
+        keeper_label="Keeper #1", clip_end_reason="controlled_release",
+    )
+
+    result = extend_and_chain_clip_windows([leading, highlight], 3000.0, {
+        "seconds_before": 4.0, "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"distribution": 4.0, "diving_save": 9.0},
+        "category_post_roll_seconds": {"distribution": 12.0, "diving_save": 11.0},
+        "leading_context_absorb_max_gap_seconds": 1.0,
+        "leading_context_max_post_roll_seconds": 4.0,
+        "interaction_validation": {"enabled": False},
+    })
+
+    accepted = [candidate for candidate in result if candidate.accepted]
+    assert len(accepted) == 1
+    assert accepted[0].candidate_id == "strong-followup-expanded-tail"
+    assert accepted[0].start == 2029.12
+    assert accepted[0].end == 2074.40
+    assert "leading-expanded-tail" in accepted[0].merged_from
+    assert accepted[0].score_breakdown["leading_context_absorbed"] == 1.0
+    assert accepted[0].score_breakdown["leading_context_compact_end"] == 2038.08
+
+
+def test_final_overlap_with_diagnostic_recovery_keeps_early_10_second_core_like_clip_20():
+    candidate = Candidate(
+        candidate_id="merged-catch-with-recovery",
+        start=1659.12,
+        end=1709.0,
+        trigger_time=1661.12,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+        accepted=True,
+        category="catch_or_control",
+        action_start=1661.12,
+        # The merged recovery/release tail has shifted the effective action end late.
+        action_end=1704.0,
+        keeper_label="Keeper #1",
+        # The real Clip-20 final candidate has already inherited the release
+        # reason from the later merged phase. Using dynamic_idle_tail here would
+        # trigger the earlier 18 s merged-idle guard and never exercise the
+        # final-overlap core that this regression is meant to cover.
+        clip_end_reason="controlled_release",
+        clip_boundary_reason="final_overlap_merged",
+        merged_from=[
+            "raw-child-a", "raw-child-b", "raw-child-c", "raw-child-d",
+            "diagnostic-recovery-child",
+        ],
+        score_breakdown={
+            "final_overlap_merge_applied": 1.0,
+            "final_overlap_original_union_duration": 61.88,
+            "final_overlap_trimmed_duration": 48.60,
+        },
+    )
+
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0},
+        "category_post_roll_seconds": {"catch_or_control": 11.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "catch_control_final_overlap_core_max_seconds": 24.0,
+        "catch_control_final_overlap_recovery_core_max_seconds": 10.0,
+        "catch_control_final_overlap_recovery_extra_pre_roll_seconds": 1.0,
+        "interaction_validation": {"enabled": False},
+    })
+
+    assert len(result) == 1
+    assert result[0].start == pytest.approx(1684.0)
+    assert result[0].end == pytest.approx(1694.0)
+    assert result[0].clip_boundary_reason == "final_overlap_recovery_compact_core"
+    assert result[0].score_breakdown["final_overlap_recovery_compact_core_applied"] == 1.0
+
+
+def test_final_overlap_without_diagnostic_recovery_keeps_existing_24_second_core_behavior():
+    candidate = Candidate(
+        candidate_id="merged-catch-no-recovery",
+        start=1659.12,
+        end=1709.0,
+        trigger_time=1661.12,
+        min_normalized_distance=0.1,
+        keeper_track_id=1,
+        accepted=True,
+        category="catch_or_control",
+        action_start=1661.12,
+        action_end=1704.0,
+        keeper_label="Keeper #1",
+        # Keep the control fixture on the same final-overlap/release path; the
+        # only difference from the case above is the missing diagnostic child.
+        clip_end_reason="controlled_release",
+        clip_boundary_reason="final_overlap_merged",
+        merged_from=["raw-child-a", "raw-child-b", "raw-child-c", "raw-child-d"],
+        score_breakdown={"final_overlap_merge_applied": 1.0},
+    )
+
+    result = extend_and_chain_clip_windows([candidate], 2000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "category_pre_roll_seconds": {"catch_or_control": 10.0},
+        "category_post_roll_seconds": {"catch_or_control": 11.0},
+        "continuation_gap_seconds": 12.0,
+        "minimum_clip_seconds": 6.0,
+        "max_dynamic_clip_seconds": 45.0,
+        "catch_control_final_overlap_core_max_seconds": 24.0,
+        "interaction_validation": {"enabled": False},
+    })
+
+    assert result[0].start == pytest.approx(1685.0)
+    assert result[0].end == pytest.approx(1709.0)
+    assert result[0].clip_boundary_reason == "final_overlap_compact_core"
+    assert "final_overlap_recovery_compact_core_applied" not in result[0].score_breakdown
