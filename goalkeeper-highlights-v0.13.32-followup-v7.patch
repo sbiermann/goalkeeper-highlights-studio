@@ -1,0 +1,98 @@
+diff --git a/src/goalkeeper_highlights/detection.py b/src/goalkeeper_highlights/detection.py
+index 9924390..a2f18c9 100644
+--- a/src/goalkeeper_highlights/detection.py
++++ b/src/goalkeeper_highlights/detection.py
+@@ -752,7 +752,12 @@ def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]
+     # or it's a confirmed possession
+     genuine_interaction = (
+         candidate.contact_frames >= 2 and 
+-        (dynamics >= motion_floor or candidate.keeper_motion >= motion_floor or candidate.possession_duration >= 0.5)
++        (
++            dynamics >= motion_floor
++            or candidate.keeper_motion >= motion_floor
++            or candidate.keeper_lateral_motion >= motion_floor
++            or candidate.possession_duration >= 0.5
++        )
+     )
+     
+     central_min = float(validation.get("central_field_y_min", 0.36))
+@@ -1068,7 +1073,16 @@ def rescue_classic_keeper_actions(items: list[Candidate], clips_cfg: dict[str, A
+     for candidate in items:
+         if candidate.accepted or candidate.rejection_reason != "event_score_below_category_threshold" or candidate.category not in allowed:
+             continue
+-        dynamic = max(candidate.approach_speed, candidate.departure_speed, candidate.direction_change, candidate.keeper_motion)
++        # Lateral keeper movement is a genuine short-contact signal as well.
++        # Fast touches can have almost no measurable ball trajectory change while
++        # the goalkeeper clearly moves sideways to make contact.
++        dynamic = max(
++            candidate.approach_speed,
++            candidate.departure_speed,
++            candidate.direction_change,
++            candidate.keeper_motion,
++            candidate.keeper_lateral_motion,
++        )
+         reliable_contact = (candidate.contact_frames >= min_contacts
+                             and candidate.min_normalized_distance <= max_distance
+                             and candidate.identity_confidence >= min_identity
+diff --git a/tests/test_recovery_pass.py b/tests/test_recovery_pass.py
+index a6e0bd8..d28bedc 100644
+--- a/tests/test_recovery_pass.py
++++ b/tests/test_recovery_pass.py
+@@ -1,4 +1,4 @@
+-from goalkeeper_highlights.detection import recover_missed_keeper_actions, _has_real_keeper_interaction
++from goalkeeper_highlights.detection import recover_missed_keeper_actions, _has_real_keeper_interaction, rescue_classic_keeper_actions
+ from goalkeeper_highlights.models import Candidate
+ 
+ 
+@@ -515,3 +515,51 @@ def test_outside_box_control_rescue_still_rejects_weak_ball_control():
+     cfg = {"interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08, "outside_box_restart_min_seconds": 2.5}}
+     assert _has_real_keeper_interaction(candidate, cfg) is False
+     assert candidate.rejection_reason == "irrelevant_outside_box_restart"
++
++
++
++def test_short_lateral_contact_rescue_accepts_raw_0068_like_interaction():
++    candidate = Candidate(
++        2141.92, 2150.56, 2145.92, 0.43925, 2,
++        accepted=False, category="interaction", contact_frames=2,
++        ball_confidence=0.37297, identity_confidence=0.58591,
++        keeper_motion=0.06313, keeper_lateral_motion=0.19202,
++        possession_duration=0.08, event_score=0.19421,
++        acceptance_threshold=0.38, rejection_reason="event_score_below_category_threshold",
++        action_start=2145.92, action_end=2146.56,
++    )
++    cfg = {
++        "classic_action_rescue": {"enabled": True},
++        "interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08},
++    }
++    rescue_classic_keeper_actions([candidate], cfg)
++    assert candidate.accepted is True
++    assert candidate.score_breakdown.get("classic_action_rescue") == 1.0
++    assert _has_real_keeper_interaction(candidate, cfg) is True
++    assert candidate.accepted is True
++
++
++def test_short_lateral_contact_rescue_keeps_known_weak_interactions_rejected():
++    cases = [
++        Candidate(129.44, 138.16, 133.44, 0.49150, 1, accepted=False, category="interaction",
++                  contact_frames=2, ball_confidence=0.30920, identity_confidence=0.95974,
++                  keeper_motion=0.00692, keeper_lateral_motion=0.01584, possession_duration=0.16,
++                  event_score=0.21474, acceptance_threshold=0.38,
++                  rejection_reason="event_score_below_category_threshold"),
++        Candidate(691.12, 708.08, 695.12, 0.42133, 1, accepted=False, category="interaction",
++                  contact_frames=4, ball_confidence=0.66133, identity_confidence=0.93996,
++                  keeper_motion=0.01172, keeper_lateral_motion=0.01805, possession_duration=0.08,
++                  event_score=0.21955, acceptance_threshold=0.38,
++                  rejection_reason="event_score_below_category_threshold"),
++        Candidate(1645.52, 1654.24, 1649.52, 0.0, 1, accepted=False, category="interaction",
++                  contact_frames=2, ball_confidence=0.28754, identity_confidence=0.81344,
++                  keeper_motion=0.00210, keeper_lateral_motion=0.00585, possession_duration=0.16,
++                  event_score=0.29626, acceptance_threshold=0.38,
++                  rejection_reason="event_score_below_category_threshold"),
++    ]
++    cfg = {
++        "classic_action_rescue": {"enabled": True},
++        "interaction_validation": {"enabled": True, "minimum_motion_signal": 0.08},
++    }
++    rescue_classic_keeper_actions(cases, cfg)
++    assert all(candidate.accepted is False for candidate in cases)

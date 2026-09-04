@@ -17,7 +17,11 @@ def require_tool(name: str) -> None:
         raise RuntimeError(f"Required executable not found in PATH: {name}")
 
 
-def run_checked(command: list[str], capture: bool = False) -> subprocess.CompletedProcess[str]:
+def run_checked(
+    command: list[str],
+    capture: bool = False,
+    timeout: float | None = None,
+) -> subprocess.CompletedProcess[str]:
     if _VERBOSE:
         print("$", subprocess.list2cmdline(command))
     # Quiet mode keeps FFmpeg/FFprobe output away from the progress bar.  Output
@@ -29,6 +33,7 @@ def run_checked(command: list[str], capture: bool = False) -> subprocess.Complet
         text=True,
         stdout=subprocess.PIPE if quiet_capture else None,
         stderr=subprocess.PIPE if quiet_capture else None,
+        timeout=timeout,
     )
 
 
@@ -104,7 +109,30 @@ def cut_clip(ffmpeg: str, source: Path, output: Path, start: float, end: float, 
             "-c:a", "aac", "-b:a", str(cfg.get("audio_bitrate", "160k")),
             "-movflags", "+faststart", str(output),
         ]
-    run_checked(command)
+    timeout_seconds = max(10.0, float(cfg.get("clip_export_timeout_seconds", 90.0)))
+    try:
+        run_checked(command, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        output.unlink(missing_ok=True)
+        if mode == "fast" or selected == "libx264":
+            raise
+        fallback_command = common + [
+            "-ss", f"{start:.3f}", "-i", str(source), "-t", f"{duration:.3f}",
+            "-map", "0:v:0", "-map", "0:a?",
+            *_video_encode_args("libx264", cfg),
+            "-c:a", "aac", "-b:a", str(cfg.get("audio_bitrate", "160k")),
+            "-movflags", "+faststart", str(output),
+        ]
+        if _VERBOSE:
+            print(
+                f"Clip export timed out after {timeout_seconds:.0f}s with {selected}; "
+                "retrying once with libx264."
+            )
+        try:
+            run_checked(fallback_command, timeout=timeout_seconds)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
+            output.unlink(missing_ok=True)
+            raise
 
 
 def concatenate(ffmpeg: str, clips: list[Path], output: Path, work_dir: Path, cfg: dict | None = None, encoder: str | None = None) -> None:

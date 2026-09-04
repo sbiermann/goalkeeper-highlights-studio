@@ -722,6 +722,51 @@ def merge_candidates(items: list[Candidate], gap: float, duration: float) -> lis
 
 
 
+def _has_strong_recovery_pass_evidence(candidate: Candidate, clips_cfg: dict[str, Any]) -> bool:
+    """Rescue native recovery-pass candidates when their stored dynamics are strong.
+
+    The generic interaction validator normally reads approach/departure/keeper-motion
+    directly from the Candidate. Native recovery-pass candidates intentionally keep
+    their independently measured dynamics in score_breakdown instead. Reuse those
+    measurements conservatively rather than lowering the generic recovery threshold.
+    """
+    if candidate.category != "recovery_keeper_interaction":
+        return False
+
+    validation = clips_cfg.get("interaction_validation", {}) or {}
+    min_event_score = float(validation.get("recovery_pass_rescue_min_event_score", 0.75))
+    min_ball_confidence = float(validation.get("recovery_pass_rescue_min_ball_confidence", 0.40))
+    max_distance = float(validation.get("recovery_pass_rescue_max_distance", 0.35))
+    min_ball_motion = float(validation.get("recovery_pass_rescue_min_ball_motion", 0.75))
+    min_keeper_motion = float(validation.get("recovery_pass_rescue_min_keeper_motion", 0.30))
+    single_frame_min_ball = float(validation.get("recovery_pass_rescue_single_frame_min_ball_confidence", 0.75))
+    single_frame_min_ball_motion = float(validation.get("recovery_pass_rescue_single_frame_min_ball_motion", 1.0))
+    single_frame_min_approach = float(validation.get("recovery_pass_rescue_single_frame_min_approach", 1.0))
+
+    recovery_ball_motion = float(candidate.score_breakdown.get("recovery_ball_motion", 0.0))
+    recovery_keeper_motion = float(candidate.score_breakdown.get("recovery_keeper_motion", 0.0))
+    recovery_approach = float(candidate.score_breakdown.get("recovery_approach", 0.0))
+    recovery_frames = int(candidate.score_breakdown.get("recovery_frames", candidate.contact_frames))
+
+    base = (
+        candidate.event_score >= min_event_score
+        and candidate.ball_confidence >= min_ball_confidence
+        and candidate.min_normalized_distance <= max_distance
+    )
+    multi_frame = (
+        recovery_frames >= 2
+        and recovery_ball_motion >= min_ball_motion
+        and recovery_keeper_motion >= min_keeper_motion
+    )
+    single_frame = (
+        recovery_frames == 1
+        and candidate.ball_confidence >= single_frame_min_ball
+        and recovery_ball_motion >= single_frame_min_ball_motion
+        and recovery_approach >= single_frame_min_approach
+    )
+    return base and (multi_frame or single_frame)
+
+
 def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]) -> bool:
     """Reject geometrically implausible long contacts caused by a bad ball track."""
     validation = clips_cfg.get("interaction_validation", {}) or {}
@@ -788,9 +833,20 @@ def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]
     
     if not genuine_interaction:
         if candidate.recovery_candidate:
-            # Stricter validation for recovery candidates: single frame requires high dynamics
-            # If interaction_score is low, reject even if it's a recovery candidate
+            # Native recovery-pass candidates store their strongest motion evidence in
+            # score_breakdown, not in the generic Candidate dynamics fields. Preserve
+            # the strict generic threshold, but allow that independent evidence to rescue
+            # a clearly dynamic recovery candidate.
             if interaction_score < float(validation.get("minimum_recovery_interaction_score", 0.45)):
+                if _has_strong_recovery_pass_evidence(candidate, clips_cfg):
+                    # Keep the pre-validation merged window. Once rescued, normal clip
+                    # planning would otherwise apply recovery category pre/post-roll and
+                    # shift a window that was already useful in the diagnostic pass.
+                    candidate.score_breakdown["recovery_pass_rescue_original_start"] = candidate.start
+                    candidate.score_breakdown["recovery_pass_rescue_original_end"] = candidate.end
+                    candidate.score_breakdown["recovery_pass_evidence_rescue"] = 1.0
+                    candidate.score_breakdown["interaction_validation"] = 1.0
+                    return True
                 if _has_contextual_recovery_rescue(candidate, clips_cfg):
                     candidate.score_breakdown["recovery_contextual_rescue_applied"] = 1.0
                     candidate.score_breakdown["interaction_validation"] = 1.0
@@ -2061,6 +2117,34 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         0.0,
         float(clips_cfg.get("recovery_context_rescue_post_roll_seconds", 6.0)),
     )
+    recovery_pass_multi_frame_core_seconds = max(
+        6.0,
+        float(clips_cfg.get("recovery_pass_multi_frame_core_seconds", 17.0)),
+    )
+    recovery_pass_multi_frame_trim_threshold = max(
+        recovery_pass_multi_frame_core_seconds,
+        float(clips_cfg.get("recovery_pass_multi_frame_trim_threshold_seconds", 18.0)),
+    )
+    recovery_pass_single_frame_core_seconds = max(
+        6.0,
+        float(clips_cfg.get("recovery_pass_single_frame_core_seconds", 11.0)),
+    )
+    save_deflection_merged_core_seconds = max(
+        12.0,
+        float(clips_cfg.get("save_deflection_merged_core_seconds", 28.0)),
+    )
+    catch_control_single_followup_core_seconds = max(
+        18.0,
+        float(clips_cfg.get("catch_control_single_followup_core_seconds", 32.0)),
+    )
+    diving_save_merged_pre_roll_seconds = max(
+        0.0,
+        float(clips_cfg.get("diving_save_merged_pre_roll_seconds", 2.0)),
+    )
+    diving_save_merged_post_roll_seconds = max(
+        0.0,
+        float(clips_cfg.get("diving_save_merged_post_roll_seconds", 6.0)),
+    )
     restart_control_rescue_max_clip_seconds = max(
         6.0,
         float(clips_cfg.get("restart_control_rescue_max_clip_seconds", 18.0)),
@@ -2498,6 +2582,112 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                         "recovery_neighbor_context_pre_roll_applied": 1.0,
                         "recovery_neighbor_context_extra_pre_roll_seconds": extra_pre_roll,
                         "recovery_neighbor_context_pre_roll_effective_start": candidate.start,
+                    }
+                )
+
+        # Native recovery-pass rescues keep their already useful leading context.
+        # Trim only clearly overlong windows; a normal ~17 s multi-frame recovery is
+        # left untouched, while a very strong single-frame action uses a tighter core.
+        if (
+            candidate.accepted
+            and candidate.category == "recovery_keeper_interaction"
+            and float(candidate.score_breakdown.get("recovery_pass_evidence_rescue", 0.0)) > 0.0
+        ):
+            recovery_frames = int(candidate.score_breakdown.get("recovery_frames", candidate.contact_frames))
+            original_start = float(candidate.score_breakdown.get("recovery_pass_rescue_original_start", candidate.start))
+            original_end = float(candidate.score_breakdown.get("recovery_pass_rescue_original_end", candidate.end))
+            candidate.start = max(0.0, original_start)
+            candidate.end = min(duration, original_end)
+            clip_duration = max(0.0, candidate.end - candidate.start)
+            target_core = (
+                recovery_pass_single_frame_core_seconds
+                if recovery_frames <= 1
+                else recovery_pass_multi_frame_core_seconds
+            )
+            should_trim = (
+                recovery_frames <= 1 and clip_duration > target_core
+            ) or (
+                recovery_frames > 1 and clip_duration > recovery_pass_multi_frame_trim_threshold
+            )
+            if should_trim:
+                candidate.end = min(candidate.end, candidate.start + target_core)
+                candidate.clip_boundary_reason = "recovery_pass_compact_core"
+                candidate.score_breakdown.update(
+                    {
+                        "recovery_pass_compact_core_applied": 1.0,
+                        "recovery_pass_compact_core_frames": float(recovery_frames),
+                        "recovery_pass_compact_core_seconds": target_core,
+                        "recovery_pass_compact_core_effective_end": candidate.end,
+                    }
+                )
+
+        # A large save/deflection phase that absorbed several follow-ups plus a
+        # diagnostic-recovery fragment can retain a long release tail. Keep the
+        # established beginning and cap that specific merged shape to a useful core.
+        if (
+            candidate.accepted
+            and candidate.category == "save_or_deflection"
+            and candidate.clip_end_reason == "controlled_release"
+            and len(candidate.merged_from) >= 4
+            and any(str(source_id).startswith("diagnostic-recovery-") for source_id in candidate.merged_from)
+            and (candidate.end - candidate.start) > save_deflection_merged_core_seconds
+        ):
+            candidate.end = min(candidate.end, candidate.start + save_deflection_merged_core_seconds)
+            candidate.clip_boundary_reason = "save_deflection_merged_compact_core"
+            candidate.score_breakdown.update(
+                {
+                    "save_deflection_merged_core_applied": 1.0,
+                    "save_deflection_merged_core_seconds": save_deflection_merged_core_seconds,
+                    "save_deflection_merged_core_effective_end": candidate.end,
+                }
+            )
+
+        # A catch/control phase with exactly one accepted follow-up can be useful as a
+        # single highlight without carrying the full generic pre/post-roll union.
+        if (
+            candidate.accepted
+            and candidate.category == "catch_or_control"
+            and candidate.clip_end_reason == "controlled_release"
+            and len(candidate.merged_from) == 1
+            and float(candidate.score_breakdown.get("phase_merge_decision", 0.0)) > 0.0
+            and float(candidate.score_breakdown.get("phase_merge_action_duration", 0.0)) > 0.0
+            and (candidate.end - candidate.start) > catch_control_single_followup_core_seconds
+        ):
+            candidate.end = min(candidate.end, candidate.start + catch_control_single_followup_core_seconds)
+            candidate.clip_boundary_reason = "catch_control_single_followup_compact_core"
+            candidate.score_breakdown.update(
+                {
+                    "catch_control_single_followup_core_applied": 1.0,
+                    "catch_control_single_followup_core_seconds": catch_control_single_followup_core_seconds,
+                    "catch_control_single_followup_core_effective_end": candidate.end,
+                }
+            )
+
+        # Dense multi-event diving saves need context around the observed action rather
+        # than the much wider category window. Do not touch clips that intentionally
+        # absorbed leading setup context (the established raw-0063/raw-0064 baseline).
+        if (
+            candidate.accepted
+            and candidate.category == "diving_save"
+            and candidate.clip_end_reason == "controlled_release"
+            and len(candidate.merged_from) >= 3
+            and float(candidate.score_breakdown.get("leading_context_absorbed", 0.0)) <= 0.0
+        ):
+            action_start = candidate.action_start or candidate.trigger_time
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            compact_start = max(candidate.start, action_start - diving_save_merged_pre_roll_seconds)
+            compact_end = min(duration, action_end + diving_save_merged_post_roll_seconds)
+            if compact_end > compact_start and (compact_start > candidate.start or compact_end != candidate.end):
+                candidate.start = compact_start
+                candidate.end = compact_end
+                candidate.clip_boundary_reason = "diving_save_merged_action_core"
+                candidate.score_breakdown.update(
+                    {
+                        "diving_save_merged_action_core_applied": 1.0,
+                        "diving_save_merged_pre_roll_seconds": diving_save_merged_pre_roll_seconds,
+                        "diving_save_merged_post_roll_seconds": diving_save_merged_post_roll_seconds,
+                        "diving_save_merged_action_core_effective_start": candidate.start,
+                        "diving_save_merged_action_core_effective_end": candidate.end,
                     }
                 )
 

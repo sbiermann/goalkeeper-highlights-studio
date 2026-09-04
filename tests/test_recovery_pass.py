@@ -563,3 +563,58 @@ def test_short_lateral_contact_rescue_keeps_known_weak_interactions_rejected():
     }
     rescue_classic_keeper_actions(cases, cfg)
     assert all(candidate.accepted is False for candidate in cases)
+
+
+def test_native_recovery_pass_rescue_uses_stored_multi_frame_dynamics():
+    candidate = Candidate(
+        2882.48, 2906.12, 2890.48, 0.0, 1, accepted=True,
+        category="recovery_keeper_interaction", recovery_candidate=True,
+        contact_frames=11, ball_confidence=0.5022, event_score=0.7952, acceptance_threshold=0.4,
+        action_start=2882.48, action_end=2897.68,
+        score_breakdown={
+            "recovery_frames": 3,
+            "recovery_keeper_motion": 0.3592,
+            "recovery_ball_motion": 0.8437,
+            "recovery_approach": 0.0916,
+        },
+    )
+    cfg = {"interaction_validation": {"enabled": True, "minimum_recovery_interaction_score": 0.45}}
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.accepted is True
+    assert candidate.score_breakdown["recovery_pass_evidence_rescue"] == 1.0
+
+
+def test_native_recovery_pass_rescue_accepts_strong_single_frame_approach():
+    candidate = Candidate(
+        3134.0, 3151.0, 3142.0, 0.03883, 1, accepted=True,
+        category="recovery_keeper_interaction", recovery_candidate=True,
+        contact_frames=1, ball_confidence=0.8992, event_score=0.82, acceptance_threshold=0.4,
+        action_start=3134.0, action_end=3142.0,
+        score_breakdown={
+            "recovery_frames": 1,
+            "recovery_keeper_motion": 0.1469,
+            "recovery_ball_motion": 1.3772,
+            "recovery_approach": 3.8337,
+        },
+    )
+    cfg = {"interaction_validation": {"enabled": True, "minimum_recovery_interaction_score": 0.45}}
+    assert _has_real_keeper_interaction(candidate, cfg) is True
+    assert candidate.score_breakdown["recovery_pass_evidence_rescue"] == 1.0
+
+
+def test_native_recovery_pass_rescue_rejects_weak_stored_dynamics():
+    candidate = Candidate(
+        100.0, 117.0, 108.0, 0.05, 1, accepted=True,
+        category="recovery_keeper_interaction", recovery_candidate=True,
+        contact_frames=3, ball_confidence=0.62, event_score=0.80, acceptance_threshold=0.4,
+        action_start=100.0, action_end=108.0,
+        score_breakdown={
+            "recovery_frames": 3,
+            "recovery_keeper_motion": 0.08,
+            "recovery_ball_motion": 0.25,
+            "recovery_approach": 0.05,
+        },
+    )
+    cfg = {"interaction_validation": {"enabled": True, "minimum_recovery_interaction_score": 0.45}}
+    assert _has_real_keeper_interaction(candidate, cfg) is False
+    assert candidate.rejection_reason == "insufficient_recovery_interaction_score"

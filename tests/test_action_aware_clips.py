@@ -819,3 +819,124 @@ def test_final_overlap_without_diagnostic_recovery_keeps_existing_24_second_core
     assert result[0].end == pytest.approx(1709.0)
     assert result[0].clip_boundary_reason == "final_overlap_compact_core"
     assert "final_overlap_recovery_compact_core_applied" not in result[0].score_breakdown
+
+
+def test_recovery_pass_multi_frame_rescue_caps_only_overlong_window_like_clip_35():
+    candidate = Candidate(
+        candidate_id="recovery-multi-overlong", start=2882.48, end=2906.12, trigger_time=2890.48,
+        min_normalized_distance=0.0, keeper_track_id=1, accepted=True,
+        category="recovery_keeper_interaction", recovery_candidate=True,
+        action_start=2882.48, action_end=2897.68, keeper_label="Keeper #1",
+        score_breakdown={
+            "recovery_pass_evidence_rescue": 1.0, "recovery_frames": 3,
+            "recovery_pass_rescue_original_start": 2882.48,
+            "recovery_pass_rescue_original_end": 2906.12,
+        },
+    )
+    result = extend_and_chain_clip_windows([candidate], 4000.0, {
+        "interaction_validation": {"enabled": False},
+        "recovery_pass_multi_frame_core_seconds": 17.0,
+        "recovery_pass_multi_frame_trim_threshold_seconds": 18.0,
+    })
+    assert result[0].start == pytest.approx(2882.48)
+    assert result[0].end == pytest.approx(2899.48)
+    assert result[0].clip_boundary_reason == "recovery_pass_compact_core"
+
+
+def test_recovery_pass_multi_frame_rescue_keeps_existing_17_second_window_like_clip_36():
+    candidate = Candidate(
+        candidate_id="recovery-multi-stable", start=2932.40, end=2949.56, trigger_time=2940.40,
+        min_normalized_distance=0.1245, keeper_track_id=1, accepted=True,
+        category="recovery_keeper_interaction", recovery_candidate=True,
+        action_start=2932.40, action_end=2941.12, keeper_label="Keeper #1",
+        score_breakdown={
+            "recovery_pass_evidence_rescue": 1.0, "recovery_frames": 3,
+            "recovery_pass_rescue_original_start": 2932.40,
+            "recovery_pass_rescue_original_end": 2949.56,
+        },
+    )
+    result = extend_and_chain_clip_windows([candidate], 4000.0, {
+        "interaction_validation": {"enabled": False},
+        "recovery_pass_multi_frame_core_seconds": 17.0,
+        "recovery_pass_multi_frame_trim_threshold_seconds": 18.0,
+    })
+    assert result[0].start == pytest.approx(2932.40)
+    assert result[0].end == pytest.approx(2949.56)
+
+
+def test_recovery_pass_single_frame_rescue_uses_11_second_core_like_clip_39():
+    candidate = Candidate(
+        candidate_id="recovery-single-strong", start=3134.0, end=3151.0, trigger_time=3142.0,
+        min_normalized_distance=0.0388, keeper_track_id=1, accepted=True,
+        category="recovery_keeper_interaction", recovery_candidate=True,
+        action_start=3134.0, action_end=3142.0, keeper_label="Keeper #1",
+        score_breakdown={
+            "recovery_pass_evidence_rescue": 1.0, "recovery_frames": 1,
+            "recovery_pass_rescue_original_start": 3134.0,
+            "recovery_pass_rescue_original_end": 3151.0,
+        },
+    )
+    result = extend_and_chain_clip_windows([candidate], 4000.0, {
+        "interaction_validation": {"enabled": False},
+        "recovery_pass_single_frame_core_seconds": 11.0,
+    })
+    assert result[0].start == pytest.approx(3134.0)
+    assert result[0].end == pytest.approx(3145.0)
+    assert result[0].clip_boundary_reason == "recovery_pass_compact_core"
+
+
+def test_large_save_deflection_with_diagnostic_tail_caps_from_existing_start_like_clip_34():
+    candidate = Candidate(
+        candidate_id="merged-save", start=2815.20, end=2858.0, trigger_time=2829.12,
+        min_normalized_distance=0.0, keeper_track_id=1, accepted=True,
+        category="save_or_deflection", action_start=2823.20, action_end=2854.0,
+        keeper_label="Keeper #1", clip_end_reason="controlled_release",
+        merged_from=["raw-a", "raw-b", "raw-c", "raw-d", "diagnostic-recovery-child"],
+    )
+    result = extend_and_chain_clip_windows([candidate], 4000.0, {
+        "interaction_validation": {"enabled": False},
+        "category_pre_roll_seconds": {"save_or_deflection": 8.0},
+        "category_post_roll_seconds": {"save_or_deflection": 4.0},
+        "save_deflection_merged_core_seconds": 28.0,
+    })
+    assert result[0].start == pytest.approx(2815.20)
+    assert result[0].end == pytest.approx(2843.20)
+    assert result[0].clip_boundary_reason == "save_deflection_merged_compact_core"
+
+
+def test_single_followup_catch_control_caps_phase_union_to_32_seconds_like_clip_38():
+    candidate = Candidate(
+        candidate_id="catch-with-one-followup", start=2986.08, end=3025.28, trigger_time=2996.08,
+        min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="catch_or_control",
+        action_start=2996.08, action_end=3015.28, keeper_label="Keeper #1",
+        clip_end_reason="controlled_release", merged_from=["raw-followup"],
+        score_breakdown={"phase_merge_decision": 1.0, "phase_merge_action_duration": 19.2},
+    )
+    result = extend_and_chain_clip_windows([candidate], 4000.0, {
+        "interaction_validation": {"enabled": False},
+        "category_pre_roll_seconds": {"catch_or_control": 10.0},
+        "category_post_roll_seconds": {"catch_or_control": 10.0},
+        "catch_control_single_followup_core_seconds": 32.0,
+    })
+    assert result[0].start == pytest.approx(2986.08)
+    assert result[0].end == pytest.approx(3018.08)
+    assert result[0].clip_boundary_reason == "catch_control_single_followup_compact_core"
+
+
+def test_dense_diving_save_uses_action_centered_context_like_clip_40():
+    candidate = Candidate(
+        candidate_id="dense-diving-save", start=3222.36, end=3242.0, trigger_time=3231.36,
+        min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="diving_save",
+        action_start=3231.36, action_end=3238.0, keeper_label="Keeper #1",
+        clip_end_reason="controlled_release", merged_from=["raw-a", "raw-b", "raw-c"],
+    )
+    result = extend_and_chain_clip_windows([candidate], 4000.0, {
+        "interaction_validation": {"enabled": False},
+        "category_pre_roll_seconds": {"diving_save": 9.0},
+        "category_post_roll_seconds": {"diving_save": 4.0},
+        "diving_save_merged_pre_roll_seconds": 2.0,
+        "diving_save_merged_post_roll_seconds": 6.0,
+    })
+    assert result[0].start == pytest.approx(3229.36)
+    assert result[0].end == pytest.approx(3244.0)
+    assert result[0].clip_boundary_reason == "diving_save_merged_action_core"
