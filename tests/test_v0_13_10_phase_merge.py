@@ -528,3 +528,17 @@ def test_long_inactive_gap_splits_previous_action_and_routes_setup_forward_like_
     assert second.score_breakdown["leading_context_absorbed"] == 1.0
     assert second.score_breakdown["phase_merge_absorbed_leading_boundary_guard"] == 1.0
     assert "strong-followup" not in first.merged_from
+
+
+def test_v13_long_internal_gap_splits_catch_and_distribution_into_two_highlights_like_clip_42():
+    first = Candidate(candidate_id="catch-first", start=3485.12, end=3494.48, trigger_time=3489.12, action_start=3489.12, action_end=3490.48, accepted=True, category="catch_or_control", keeper_label="Keeper #1", clip_end_reason="timeout", min_normalized_distance=.1, keeper_track_id=1, contact_frames=4, possession_duration=.8)
+    second = Candidate(candidate_id="distribution-second", start=3501.28, end=3510.24, trigger_time=3505.28, action_start=3505.28, action_end=3506.24, accepted=True, category="distribution", keeper_label="Keeper #1", clip_end_reason="timeout", min_normalized_distance=.1, keeper_track_id=1, contact_frames=6, possession_duration=.4)
+    result = extend_and_chain_clip_windows([first, second], 5000.0, {"interaction_validation":{"enabled":False}, "seconds_before":4.0, "seconds_after":4.0, "category_pre_roll_seconds":{"catch_or_control":10.0,"distribution":4.0}, "category_post_roll_seconds":{"catch_or_control":11.0,"distribution":12.0}, "continuation_gap_seconds":12.0, "phase_merge_gap_seconds":30.0, "max_dynamic_clip_seconds":45.0, "catch_control_distribution_split_min_action_gap_seconds":10.0})
+    accepted = [c for c in result if c.accepted]
+    assert len(accepted) == 2
+    assert accepted[0].start == pytest.approx(3479.12)
+    assert accepted[0].end == pytest.approx(3492.48)
+    assert accepted[1].start == pytest.approx(3501.28)
+    assert accepted[1].end == pytest.approx(3513.24)
+    assert accepted[0].clip_boundary_reason == "internal_phase_gap_split"
+    assert accepted[1].clip_boundary_reason == "internal_phase_gap_split"

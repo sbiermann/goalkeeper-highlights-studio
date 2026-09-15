@@ -940,3 +940,105 @@ def test_dense_diving_save_uses_action_centered_context_like_clip_40():
     assert result[0].start == pytest.approx(3229.36)
     assert result[0].end == pytest.approx(3244.0)
     assert result[0].clip_boundary_reason == "diving_save_merged_action_core"
+
+
+def test_v13_merged_strong_catch_uses_action_centered_core_like_clip_41():
+    candidate = Candidate(candidate_id="strong-merged-catch", start=3413.2, end=3439.16, trigger_time=3424.32, min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="catch_or_control", action_start=3423.2, action_end=3432.16, keeper_label="Keeper #1", clip_end_reason="dynamic_idle_tail", merged_from=["child-a", "child-b"], contact_frames=53, possession_duration=3.04)
+    result = extend_and_chain_clip_windows([candidate], 5000.0, {"interaction_validation":{"enabled":False}, "catch_control_merged_phase_max_seconds":18.0})
+    assert result[0].start == pytest.approx(3420.2)
+    assert result[0].end == pytest.approx(3434.16)
+    assert result[0].clip_boundary_reason == "merged_action_core"
+
+
+def test_v13_merged_moderate_catch_keeps_more_release_context_like_clip_46():
+    candidate = Candidate(candidate_id="moderate-merged-catch", start=3978.8, end=4002.28, trigger_time=3994.24, min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="catch_or_control", action_start=3988.8, action_end=3995.28, keeper_label="Keeper #1", clip_end_reason="dynamic_idle_tail", merged_from=["child-a", "child-b"], contact_frames=16, possession_duration=.96)
+    result = extend_and_chain_clip_windows([candidate], 5000.0, {"interaction_validation":{"enabled":False}, "catch_control_merged_phase_max_seconds":18.0})
+    assert result[0].start == pytest.approx(3984.8)
+    assert result[0].end == pytest.approx(4001.28)
+    assert result[0].clip_boundary_reason == "merged_action_core"
+
+
+def test_v13_single_followup_diving_save_uses_action_centered_start_like_clip_45():
+    candidate = Candidate(candidate_id="single-diving-save", start=3689.88, end=3708.48, trigger_time=3698.88, min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="diving_save", action_start=3698.88, action_end=3704.48, keeper_label="Keeper #1", clip_end_reason="controlled_release", merged_from=["child-a"])
+    result = extend_and_chain_clip_windows([candidate], 5000.0, {"interaction_validation":{"enabled":False}, "diving_save_merged_pre_roll_seconds":2.0, "diving_save_merged_post_roll_seconds":6.0})
+    assert result[0].start == pytest.approx(3696.88)
+    assert result[0].end == pytest.approx(3708.48)
+    assert result[0].clip_boundary_reason == "diving_save_merged_action_core"
+
+
+def test_v13_diagnostic_save_focuses_late_action_without_touching_diving_save_baseline():
+    candidate = Candidate(candidate_id="diagnostic-recovery-test", start=3540.0, end=3582.56, trigger_time=3559.92, min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="save_or_deflection", action_start=3548.0, action_end=3578.56, keeper_label="Keeper #1", clip_end_reason="controlled_release", merged_from=["a","b","c","d","e","f"])
+    result = extend_and_chain_clip_windows([candidate], 5000.0, {"interaction_validation":{"enabled":False}, "diagnostic_save_trailing_core_seconds":10.0})
+    assert result[0].start == pytest.approx(3568.56)
+    assert result[0].end == pytest.approx(3582.56)
+    assert result[0].clip_boundary_reason == "diagnostic_save_trailing_core"
+
+
+def test_v13_short_possession_high_speed_distribution_gets_two_second_release_tail_like_clip_50():
+    candidate = Candidate(candidate_id="fast-short-distribution", start=4245.8, end=4260.8, trigger_time=4243.44, min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="distribution", action_start=4243.44, action_end=4256.8, keeper_label="Keeper #1", clip_end_reason="controlled_release", merged_from=["a","b","c","d"], possession_duration=1.92, departure_speed=13.34, score_breakdown={"distribution_compact_core_applied":1.0})
+    result = extend_and_chain_clip_windows([candidate], 5000.0, {"interaction_validation":{"enabled":False}, "distribution_long_phase_departure_speed_floor":3.0, "distribution_long_phase_max_clip_seconds":15.0, "distribution_long_phase_core_seconds":11.0, "distribution_long_phase_tail_seconds":4.0})
+    assert result[0].end == pytest.approx(4262.8)
+    assert result[0].clip_boundary_reason == "distribution_compact_release_tail"
+
+
+def test_v13_7_weak_distribution_without_release_is_rejected_like_clip_54():
+    candidate = Candidate(candidate_id="weak-distribution", start=4507.92, end=4523.60, trigger_time=4511.92,
+        min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="distribution",
+        action_start=4511.92, action_end=4519.60, contact_frames=6, ball_confidence=.518,
+        keeper_motion=.125, possession_duration=.40, event_score=.408, keeper_label="Keeper #1",
+        merged_from=["raw-child"])
+    result = extend_and_chain_clip_windows([candidate], 6000.0, {"interaction_validation":{"enabled":True,"minimum_motion_signal":.08}})
+    assert result[0].accepted is False
+    assert result[0].rejection_reason == "weak_distribution_without_release"
+
+
+def test_v13_7_weak_merged_control_without_release_is_rejected_like_clip_55():
+    candidate = Candidate(candidate_id="weak-control", start=4597.52, end=4607.76, trigger_time=4601.52,
+        min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="catch_or_control",
+        action_start=4600.72, action_end=4603.76, contact_frames=10, ball_confidence=.497,
+        keeper_motion=.509, possession_duration=.64, approach_speed=.147, event_score=.459,
+        keeper_label="Keeper #1", merged_from=["raw-child"])
+    result = extend_and_chain_clip_windows([candidate], 6000.0, {"interaction_validation":{"enabled":True,"minimum_motion_signal":.08}})
+    assert result[0].accepted is False
+    assert result[0].rejection_reason == "weak_merged_control_without_release"
+
+
+def test_v13_7_implausible_long_static_control_track_is_rejected_like_clip_58():
+    candidate = Candidate(candidate_id="long-static-control", start=4783.36, end=4833.68, trigger_time=4789.20,
+        min_normalized_distance=.0867, keeper_track_id=1, accepted=True, category="catch_or_control",
+        action_start=4786.24, action_end=4829.68, contact_frames=316, ball_confidence=.604,
+        keeper_motion=.404, possession_duration=6.16, event_score=.511, keeper_label="Keeper #1",
+        merged_from=[f"raw-child-{i}" for i in range(9)])
+    result = extend_and_chain_clip_windows([candidate], 6000.0, {"interaction_validation":{"enabled":True,"minimum_motion_signal":.08}})
+    assert result[0].accepted is False
+    assert result[0].rejection_reason == "implausible_long_static_control_track"
+
+
+def test_v13_7_restart_with_recovery_tail_uses_early_compact_core_like_clip_53():
+    candidate = Candidate(candidate_id="restart-recovery", start=4477.20, end=4504.84, trigger_time=4481.20,
+        min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="distribution",
+        action_start=4481.20, action_end=4496.40, contact_frames=34, ball_confidence=.580,
+        keeper_motion=.741, possession_duration=3.36, departure_speed=4.157, event_score=.747,
+        keeper_label="Keeper #1", clip_end_reason="controlled_release",
+        merged_from=["raw-child", "recovery-0007", "raw-child-2"],
+        score_breakdown={"restart_relevance_rescue_applied":1.0})
+    result = extend_and_chain_clip_windows([candidate], 6000.0, {"interaction_validation":{"enabled":False}})
+    assert result[0].start == pytest.approx(4481.20)
+    assert result[0].end == pytest.approx(4491.20)
+    assert result[0].clip_boundary_reason == "restart_recovery_compact_core"
+
+
+def test_v13_7_strong_merged_distribution_gets_two_second_release_tail_like_clip_61():
+    candidate = Candidate(candidate_id="strong-release", start=5079.84, end=5090.88, trigger_time=5083.84,
+        min_normalized_distance=0.0, keeper_track_id=1, accepted=True, category="distribution",
+        action_start=5083.84, action_end=5086.88, contact_frames=16, ball_confidence=.628,
+        keeper_motion=.365, possession_duration=1.12, departure_speed=17.73, event_score=.562,
+        keeper_label="Keeper #1", clip_end_reason="controlled_release", merged_from=["raw-child"])
+    result = extend_and_chain_clip_windows([candidate], 6000.0, {
+        "seconds_before": 4.0,
+        "seconds_after": 4.0,
+        "interaction_validation": {"enabled": False},
+    })
+    assert result[0].start == pytest.approx(5079.84)
+    assert result[0].end == pytest.approx(5092.88)
+    assert result[0].clip_boundary_reason == "distribution_strong_release_tail"

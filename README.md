@@ -1,6 +1,6 @@
 # Goalkeeper Highlights Studio
 
-**Version 0.13.32**
+**Version 0.13.33**
 
 Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11 (Ultralytics), ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-Vision-Modelle.
 
@@ -15,9 +15,21 @@ Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-High
 - **Recovery-Pass**: Zusätzlicher Durchlauf zur Erkennung möglicherweise übersehener Aktionen.
 - **Clip-Erstellung**: Automatischer Schnitt und Zusammenbau der Highlights mit FFmpeg.
 - **Umfangreiche Berichte**: HTML-Reports mit eingebetteten Videos (HTML5-Player), SQLite-Datenbank und JSON/CSV-Exporte.
-- **Diagnose**: Automatisches Debug-Paket (`goalkeeper_highlights_debug_v0.13.32.zip`) für detaillierte Fehleranalysen ohne Videodateien.
+- **Diagnose**: Automatisches Debug-Paket (`goalkeeper_highlights_debug_v0.13.33.zip`) für detaillierte Fehleranalysen ohne Videodateien.
 
 *Hinweis: Dies ist ein experimentelles Projekt. Die Ergebnisse sollten stets manuell überprüft werden.*
+
+## Verifizierter 0.13.33-Follow-up-Stand
+
+Version 0.13.33 dokumentiert die aufeinander aufbauenden Follow-up-Änderungen aus den Root-Patches `v13.1` bis `v13.7.3` mit Fokus auf robustere Szenenabgrenzung und weniger Fehlakzeptanzen bei unveränderter Event-/Threshold-/Recovery-Grundlogik.
+
+- Catch/Control und klar später folgende Distributionen können gezielt in zwei Highlights getrennt werden (`internal_phase_gap_split`), inklusive dedizierter Boundary-Parameter statt pauschaler globaler Fenster.
+- Der Split bleibt kontextsensitiv: kompakter Forward-Leading-Context für eine direkt folgende stärkere Keeper-Aktion wird nicht getrennt, sondern weiter in den Folgekandidaten absorbiert.
+- Neue False-Positive-Guards in der Interaktionsvalidierung verwerfen schwache Distribution-/Merged-Control-Signaturen sowie unplausibel lange statische Kontrollphasen konsistenter.
+- V13.7.3 ergänzt einen Phase-Context-Rescue, damit diese Guards valide, in kohärente Catch-Phasen eingebettete schwache Übergangssignale nicht fälschlich verwerfen.
+- Restart-/Recovery-getriebene Distributionen erhalten kompaktere Core-Fenster; starke kontrollierte Releases können einen kleinen zusätzlichen Tail behalten, ohne dass nachfolgende Trimmregeln dies wieder überschreiben.
+- Boundary-/Merge-Regeln wurden durch zusätzliche Regressionstests abgesichert; Test-Fixture-Korrekturen (`v13.7.2`) stellen reproduzierbare Assertions sicher.
+- Debug-Paketname für diesen Stand: `goalkeeper_highlights_debug_v0.13.33.zip`.
 
 ## Verifizierter 0.13.32-Referenzstand
 
@@ -127,7 +139,7 @@ Die Ergebnisse werden im Ordner `<video>_goalkeeper_highlights/` gespeichert:
 ## Debug-Paket
 
 Nach jedem erfolgreichen Lauf wird automatisch ein Debug-Paket erstellt:
-`goalkeeper_highlights_debug_v0.13.32.zip`
+`goalkeeper_highlights_debug_v0.13.33.zip`
 
 Dieses Paket enthält **keine Videodateien**, sondern wichtige Diagnosedaten:
 - `candidate_pipeline_trace.json`: Komplette Historie aller Kandidaten.

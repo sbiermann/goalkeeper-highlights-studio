@@ -170,6 +170,13 @@ clips:
   catch_control_isolated_rebalance_min_pre_roll_seconds: 8.0
   catch_control_isolated_rebalance_max_post_roll_seconds: 5.0
   catch_control_merged_phase_max_seconds: 18.0
+  # Split a catch/control and a clearly separated later distribution into two
+  # highlights. This is opt-in in code so old callers without these settings
+  # retain the established phase-merge behaviour.
+  catch_control_distribution_split_min_action_gap_seconds: 10.0
+  catch_control_distribution_split_first_tail_seconds: 2.0
+  catch_control_distribution_split_pre_roll_seconds: 4.0
+  catch_control_distribution_split_post_roll_seconds: 7.0
   catch_control_merged_dynamic_idle_tail_cap_seconds: 4.0
   catch_control_merged_dynamic_pre_roll_cap_seconds: 3.0
   catch_control_single_merge_dynamic_tail_seconds: 4.0

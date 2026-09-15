@@ -1,3 +1,15 @@
+## 0.13.33
+- Follow-up-Stabilisierungsrelease auf Basis der Root-Patches `v13.1` bis `v13.7.3` mit Fokus auf robuster Szenenabgrenzung bei unveränderter Event-/Candidate-/Recovery-/Threshold-Grundlogik.
+- Neue konfigurierbare Catch/Control→Distribution-Phasentrennung (`internal_phase_gap_split`) mit dedizierten Split-Parametern (`*_min_action_gap_seconds`, `*_first_tail_seconds`, `*_pre_roll_seconds`, `*_post_roll_seconds`) für präzisere Clip-1/Clip-2-Grenzen statt pauschaler Fenster.
+- Split-Logik wurde gegen Regressionen gehärtet: kein Split für Forward-Leading-Context in direkt folgende starke Keeper-Aktionen, spätere Split-Entscheidungen erzwingen sofort die dedizierten Split-Boundaries, und Phase-Merge-Rescues respektieren einen expliziten Split-Guard.
+- Backward-Compatibility: Split-Verhalten ist effektiv opt-in (aktiv nur bei vorhandener Split-Konfiguration); ohne diese Settings bleibt das etablierte Merging-Verhalten erhalten.
+- Catch/Control-Merge-Boundaries verfeinert: aktionszentrierter Core-Zuschnitt nur für kompakte Merge-Gruppen mit genau zwei Folgekandidaten; größere Merge-Gruppen behalten den stabilen Legacy-Start und werden konservativ nur über die maximale Core-Dauer gekappt.
+- Interaktionsvalidierung erweitert um gezielte False-Positive-Guards: `weak_distribution_without_release`, `weak_merged_control_without_release` und `implausible_long_static_control_track` werden konsistent rejected.
+- V13.7.3 ergänzt kontextuelle Rescue-Marker (`weak_distribution_phase_context_rescue`, `weak_merged_control_phase_context_rescue`), damit in kohärente Same-Keeper-Catch-Phasen eingebettete schwache Übergangssignale nicht fälschlich von den neuen Guards verworfen werden.
+- Boundary-Feintuning für Distributionen: restart-/recovery-inflationierte Merges werden auf einen frühen kompakten Core begrenzt (`restart_recovery_compact_core`), während starke kontrollierte Releases einen kurzen zusätzlichen Tail erhalten (`distribution_strong_release_tail`), ohne durch nachgelagerte Kompaktregeln wieder abgeschnitten zu werden.
+- Defaults in `config/default.yaml` und `src/goalkeeper_highlights/default.yaml` für die neuen Split-Parameter synchronisiert; zusätzliche Regressionstests in `tests/test_action_aware_clips.py` und Fixture-Korrekturen (`v13.7.2`) sichern reproduzierbare Assertions ab.
+- Debug-Archivname für diesen Stand: `goalkeeper_highlights_debug_v0.13.33.zip`.
+
 ## 0.13.32
 - Qualitäts-/Boundary-Stabilisierungsrelease mit real verifiziertem Referenzstand für die ersten 20 chronologischen Clips/Candidates; vollständige Testsuite: **209 passed, 0 failed**.
 - Preparation-Pre-Roll für kompakte Distribution-/Clearance-Cores korrigiert: die Referenzfälle 8/10 behalten nach dem finalen Core-Zuschnitt rund 2 Sekunden Vorbereitungskontext, ohne alte lange Vorläufe wiederherzustellen.

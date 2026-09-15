@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.32. Clips/Candidates 1–20 of the reference material are the verified quality baseline; next focus is clips 21+ and validation on additional videos. Performance/runtime defaults remain unchanged.
+Current stabilization release: 0.13.33. Clips/Candidates 1–20 of the reference material remain the verified quality baseline; next focus is clips 21+ and validation on additional videos. Performance/runtime defaults remain unchanged.
 
 # Roadmap
 
@@ -8,6 +8,14 @@ Current stabilization release: 0.13.32. Clips/Candidates 1–20 of the reference
 - Dynamic clip ends triggered by detected restarts (kick/throw).
 
 ## 0.13.x
+- Version 0.13.33 is completed as a follow-up stabilization pass based on root patches `v13.1` to `v13.7.3`, focused on scene-boundary quality and false-positive reduction without changing event/recovery/threshold fundamentals.
+- 0.13.33 introduces a configurable internal phase split for clear catch/control -> later distribution sequences (`internal_phase_gap_split`), including dedicated split pre/post windows and phase-merge guards.
+- 0.13.33 keeps forward-leading distribution context attached to stronger immediate follow-up keeper actions and avoids accidental split regressions in that path.
+- 0.13.33 adds stricter interaction-validation false-positive guards (weak distribution without release, weak merged control without release, implausible long static merged control).
+- 0.13.33 adds contextual rescue markers so weak transitions embedded in coherent same-keeper catch phases are not wrongly rejected by the new guards.
+- 0.13.33 refines boundary behavior for restart/recovery-inflated merged distributions (compact restart-recovery core) and preserves a short extra tail for strong controlled releases.
+- 0.13.33 keeps backward-compatible behavior when split settings are absent (opt-in guard) and synchronizes new split defaults across `config/default.yaml` and `src/goalkeeper_highlights/default.yaml`.
+- 0.13.33 validation scope includes added/updated regression tests for split/guard/boundary paths plus fixture-only correction patches for deterministic assertions.
 - Version 0.13.32 is completed as the verified quality/boundary baseline for the first 20 chronological clips/candidates of the reference material; full regression suite: **209 passed, 0 failed**.
 - 0.13.32 outcome: compact distribution/clearance cores preserve a small preparation pre-roll after final core trimming; the verified cases 8/10 retain about 2 seconds of useful preparation context.
 - 0.13.32 recovery outcome: conservative neighbor-context evidence rescues the verified uncovered-activity case while `diagnostic-recovery-0004` and `diagnostic-recovery-0005` remain rejected; the accepted recovery clip uses a compact 11-second window.

@@ -861,6 +861,60 @@ def _has_real_keeper_interaction(candidate: Candidate, clips_cfg: dict[str, Any]
             candidate.score_breakdown["interaction_validation"] = -1.0
             return False
 
+    # V13.7: reject several false-positive signatures that can look convincing after
+    # candidate merging even though there is no coherent goalkeeper-ball action.
+    action_start = candidate.action_start or candidate.trigger_time
+    action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+    action_duration = max(0.0, action_end - action_start)
+    weak_distribution_phase_context = float(
+        candidate.score_breakdown.get("weak_distribution_phase_context_rescue", 0.0)
+    ) > 0.0
+    weak_merged_control_phase_context = float(
+        candidate.score_breakdown.get("weak_merged_control_phase_context_rescue", 0.0)
+    ) > 0.0
+    weak_distribution_without_release = (
+        candidate.category in {"distribution", "goalkeeper_distribution"}
+        and not weak_distribution_phase_context
+        and candidate.contact_frames <= 8
+        and candidate.possession_duration < 0.75
+        and candidate.event_score < 0.50
+        and interaction_score < 0.35
+        and max(candidate.approach_speed, candidate.departure_speed, candidate.direction_change) < motion_floor
+    )
+    weak_merged_control_without_release = (
+        candidate.category == "catch_or_control"
+        and bool(candidate.merged_from)
+        and not weak_merged_control_phase_context
+        and candidate.contact_frames <= 12
+        and candidate.possession_duration < 0.80
+        and candidate.ball_confidence < 0.55
+        and candidate.event_score < 0.50
+        and candidate.departure_speed < motion_floor
+        and candidate.direction_change < motion_floor
+    )
+    implausible_long_static_control_track = (
+        candidate.category == "catch_or_control"
+        and len(candidate.merged_from) >= 5
+        and candidate.contact_frames >= 150
+        and action_duration >= 30.0
+        and candidate.approach_speed < motion_floor
+        and candidate.departure_speed < motion_floor
+        and candidate.direction_change < motion_floor
+    )
+    if weak_distribution_without_release or weak_merged_control_without_release or implausible_long_static_control_track:
+        candidate.accepted = False
+        if implausible_long_static_control_track:
+            candidate.rejection_reason = "implausible_long_static_control_track"
+            candidate.score_breakdown["long_static_control_track_guard"] = 1.0
+        elif weak_distribution_without_release:
+            candidate.rejection_reason = "weak_distribution_without_release"
+            candidate.score_breakdown["weak_distribution_without_release_guard"] = 1.0
+        else:
+            candidate.rejection_reason = "weak_merged_control_without_release"
+            candidate.score_breakdown["weak_merged_control_without_release_guard"] = 1.0
+        candidate.score_breakdown["interaction_validation"] = -1.0
+        return False
+
     if irrelevant_restart and _has_strong_restart_distribution_evidence(candidate, clips_cfg):
         candidate.score_breakdown["restart_relevance_rescue_applied"] = 1.0
         candidate.score_breakdown["interaction_validation"] = 1.0
@@ -1514,6 +1568,22 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
     category_before = clips_cfg.get("category_pre_roll_seconds", {}) or {}
     category_after = clips_cfg.get("category_post_roll_seconds", {}) or {}
     continuation_gap = max(0.0, float(clips_cfg.get("continuation_gap_seconds", 12.0)))
+    catch_distribution_split_gap = max(
+        0.0,
+        float(clips_cfg.get("catch_control_distribution_split_min_action_gap_seconds", 10.0)),
+    )
+    catch_distribution_split_first_tail = max(
+        0.0,
+        float(clips_cfg.get("catch_control_distribution_split_first_tail_seconds", 2.0)),
+    )
+    catch_distribution_split_pre = max(
+        0.0,
+        float(clips_cfg.get("catch_control_distribution_split_pre_roll_seconds", 4.0)),
+    )
+    catch_distribution_split_post = max(
+        0.0,
+        float(clips_cfg.get("catch_control_distribution_split_post_roll_seconds", 7.0)),
+    )
     final_tail = max(0.0, float(clips_cfg.get("final_keeper_contact_tail_seconds", 4.0)))
     max_duration = max(1.0, float(clips_cfg.get("max_dynamic_clip_seconds", 45.0)))
     minimum_duration = max(1.0, float(clips_cfg.get("minimum_clip_seconds", 6.0)))
@@ -1540,13 +1610,53 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         if previous_cat in restart_categories and current_cat in restart_categories:
             return False
         return True
-    for candidate in ordered:
+    for ordered_index, candidate in enumerate(ordered):
         # v0.13.11: Ensure score_breakdown is initialized before use
         if candidate.score_breakdown is None:
             candidate.score_breakdown = {}
         
         # print(f"[DEBUG_LOG] Processing candidate {candidate.candidate_id}, accepted={candidate.accepted}, category={candidate.category}")
-            
+
+        # V13.7.3: preserve weak candidates that are embedded in an already coherent
+        # same-keeper catch/control phase. The V13.7 false-positive guards run before
+        # the later split/leading-context passes, so without this contextual marker they
+        # can reject a valid distribution/setup before those passes can classify it.
+        previous_ordered = ordered[ordered_index - 1] if ordered_index > 0 else None
+        if previous_ordered is not None and previous_ordered.accepted:
+            previous_action_end = previous_ordered.action_end or previous_ordered.trigger_time
+            candidate_action_start = candidate.action_start or candidate.trigger_time
+            action_gap_to_previous = candidate_action_start - previous_action_end
+            clip_gap_to_previous = candidate.start - previous_ordered.end
+            phase_context_gap = max(
+                continuation_gap,
+                float(clips_cfg.get("phase_merge_gap_seconds", 30.0)),
+            )
+            same_keeper_catch_context = (
+                previous_ordered.keeper_label == candidate.keeper_label
+                and previous_ordered.category in {"catch_or_control", "cross_claim_or_high_catch"}
+                and action_gap_to_previous >= 0.0
+                and clip_gap_to_previous <= phase_context_gap
+            )
+
+            if (
+                same_keeper_catch_context
+                and candidate.category in {"distribution", "goalkeeper_distribution", "keeper_clearance"}
+                and "catch_control_distribution_split_min_action_gap_seconds" in clips_cfg
+                and action_gap_to_previous >= catch_distribution_split_gap
+            ):
+                candidate.score_breakdown["weak_distribution_phase_context_rescue"] = 1.0
+                candidate.score_breakdown["weak_distribution_phase_context_action_gap"] = action_gap_to_previous
+                candidate.score_breakdown["weak_distribution_phase_context_clip_gap"] = clip_gap_to_previous
+
+            if (
+                same_keeper_catch_context
+                and candidate.category == "catch_or_control"
+                and bool(candidate.merged_from)
+            ):
+                candidate.score_breakdown["weak_merged_control_phase_context_rescue"] = 1.0
+                candidate.score_breakdown["weak_merged_control_phase_context_action_gap"] = action_gap_to_previous
+                candidate.score_breakdown["weak_merged_control_phase_context_clip_gap"] = clip_gap_to_previous
+
         _has_real_keeper_interaction(candidate, clips_cfg)
         # print(f"[DEBUG_LOG] After interaction check: {candidate.candidate_id}, accepted={candidate.accepted}")
         if not candidate.accepted:
@@ -1571,11 +1681,23 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         
         candidate.start = max(0.0, action_start - before)
         candidate.end = min(duration, action_end + after)
+        internal_phase_gap_split_part = float(
+            candidate.score_breakdown.get("internal_phase_gap_split_part", 0.0)
+        )
+        if internal_phase_gap_split_part == 2.0:
+            candidate.start = max(0.0, action_start - catch_distribution_split_pre)
+            candidate.end = min(duration, action_end + catch_distribution_split_post)
+            candidate.clip_boundary_reason = "internal_phase_gap_split"
+            candidate.score_breakdown.update({
+                "internal_phase_gap_split_effective_start": candidate.start,
+                "internal_phase_gap_split_effective_end": candidate.end,
+            })
         if candidate.recovery_candidate or candidate.category == "recovery_uncovered_activity":
             if candidate.recovery_window_start <= 0.0:
                 candidate.recovery_window_start = action_start
             candidate.recovery_window_end = max(candidate.recovery_window_end, action_end, candidate.end)
-        candidate.clip_boundary_reason = "observed_action_window"
+        if internal_phase_gap_split_part != 2.0:
+            candidate.clip_boundary_reason = "observed_action_window"
         
         # Default end reason
         if not candidate.clip_end_reason:
@@ -1674,8 +1796,91 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             gap = action_start - (previous.action_end or previous.trigger_time)
             # print(f"[DEBUG_LOG] Chaining check: {previous.candidate_id} -> {candidate.candidate_id}, gap={gap}, same_keeper={previous.keeper_label == candidate.keeper_label}")
             
+            # Keep a clearly separated catch/control and later distribution as two
+            # highlights even when their broad clip windows overlap. The action gap,
+            # not the padded windows, is the decisive signal here.
+            # Do not split a distribution away from the previous catch when that
+            # distribution is itself compact leading context for an immediately
+            # following stronger keeper action. That established V10 path routes
+            # the setup forward into the next highlight instead.
+            next_ordered = ordered[ordered_index + 1] if ordered_index + 1 < len(ordered) else None
+            candidate_is_forward_leading_context = False
+            if next_ordered is not None and candidate.accepted and next_ordered.accepted:
+                candidate_action_end = action_end
+                next_action_start = next_ordered.action_start or next_ordered.trigger_time
+                next_before = max(0.0, float(category_before.get(next_ordered.category, default_before)))
+                next_planned_start = max(0.0, next_action_start - next_before)
+                leading_context_tail = max(
+                    0.0,
+                    float(clips_cfg.get("leading_context_max_post_roll_seconds", 4.0)),
+                )
+                compact_candidate_end = min(candidate.end, candidate_action_end + leading_context_tail)
+                forward_gap = next_planned_start - compact_candidate_end
+                strong_followup_categories = {
+                    "catch_or_control",
+                    "cross_claim_or_high_catch",
+                    "save_or_deflection",
+                    "diving_save",
+                    "ball_contact",
+                }
+                forward_delta = float(clips_cfg.get("leading_context_forward_relevance_delta", 0.75))
+                candidate_is_forward_leading_context = (
+                    candidate.keeper_label == next_ordered.keeper_label
+                    and candidate.category in {"distribution", "goalkeeper_distribution", "keeper_clearance", "interaction"}
+                    and next_ordered.category in strong_followup_categories
+                    and 0.0 <= forward_gap <= float(clips_cfg.get("leading_context_absorb_max_gap_seconds", 1.0))
+                    and candidate.contact_frames >= int(clips_cfg.get("leading_context_absorb_min_contact_frames", 2))
+                    and candidate.ball_confidence >= float(clips_cfg.get("leading_context_absorb_min_ball_confidence", 0.50))
+                    and candidate.min_normalized_distance <= float(clips_cfg.get("leading_context_absorb_max_distance", 0.50))
+                    and _candidate_relevance_score(next_ordered) >= _candidate_relevance_score(candidate) + forward_delta
+                    and next_action_start >= candidate_action_end
+                )
+
+            split_catch_distribution = (
+                previous.category in {"catch_or_control", "cross_claim_or_high_catch"}
+                and candidate.category in {"distribution", "goalkeeper_distribution", "keeper_clearance"}
+                # Preserve the established broad phase-merge behaviour unless the
+                # dedicated V13 split policy is explicitly configured. Real production
+                # config enables it; older callers/tests that only exercise generic
+                # phase merging must retain the V10 semantics.
+                and "catch_control_distribution_split_min_action_gap_seconds" in clips_cfg
+                and candidate.clip_end_reason in {"", "timeout", "observed_action_window", "dynamic_idle_tail"}
+                and gap >= catch_distribution_split_gap
+                and not candidate_is_forward_leading_context
+            )
+            if split_catch_distribution:
+                previous_action_end = previous.action_end or previous.trigger_time
+                previous.end = min(previous.end, previous_action_end + catch_distribution_split_first_tail)
+                previous.clip_boundary_reason = "internal_phase_gap_split"
+                previous.score_breakdown.update({
+                    "internal_phase_gap_split_applied": 1.0,
+                    "internal_phase_gap_seconds": gap,
+                    "internal_phase_gap_split_part": 1.0,
+                    "internal_phase_gap_split_effective_end": previous.end,
+                })
+
+                # This split is decided after the normal planning window has already
+                # been calculated for the distribution. Apply the dedicated split
+                # boundaries here as well; otherwise the generic category post-roll
+                # (for example 12 s) survives and makes the second clip too long.
+                candidate.start = max(0.0, action_start - catch_distribution_split_pre)
+                candidate.end = min(duration, action_end + catch_distribution_split_post)
+                candidate.clip_boundary_reason = "internal_phase_gap_split"
+                candidate.score_breakdown.update({
+                    "internal_phase_gap_split_applied": 1.0,
+                    "internal_phase_gap_seconds": gap,
+                    "internal_phase_gap_split_part": 2.0,
+                    "internal_phase_gap_split_effective_start": candidate.start,
+                    "internal_phase_gap_split_effective_end": candidate.end,
+                })
+
             # v0.13.11: More flexible chaining: also allow when the clips overlap (negative gap)
-            if gap <= continuation_gap and previous.keeper_label == candidate.keeper_label and same_keeper_phase(previous, candidate):
+            if (
+                not split_catch_distribution
+                and gap <= continuation_gap
+                and previous.keeper_label == candidate.keeper_label
+                and same_keeper_phase(previous, candidate)
+            ):
                 # Keep one continuous phase when a second keeper event follows,
                 # e.g. distribution -> turnover -> shot -> catch.
                 proposed_end = min(duration, action_end + final_tail)
@@ -1847,6 +2052,10 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                 action_gap > continuation_gap
                 and float(candidate.score_breakdown.get("leading_context_absorbed", 0.0)) > 0.0
             )
+            internal_phase_gap_split_guard = (
+                float(candidate.score_breakdown.get("internal_phase_gap_split_part", 0.0)) == 2.0
+                or float(previous.score_breakdown.get("internal_phase_gap_split_part", 0.0)) == 1.0
+            )
 
             if forward_leading_gap_guard and previous.accepted and previous.category == "catch_or_control":
                 previous_action_start, previous_action_end = _candidate_action_bounds(previous)
@@ -1887,6 +2096,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                 "phase_merge_classic_rescue_gap_guard": 1.0 if classic_rescue_gap_guard else 0.0,
                 "phase_merge_forward_leading_gap_guard": 1.0 if forward_leading_gap_guard else 0.0,
                 "phase_merge_absorbed_leading_boundary_guard": 1.0 if absorbed_leading_boundary_guard else 0.0,
+                "phase_merge_internal_phase_gap_split_guard": 1.0 if internal_phase_gap_split_guard else 0.0,
                 "phase_merge_decision": 0.0
             })
 
@@ -1923,6 +2133,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                     and not classic_rescue_gap_guard
                     and not forward_leading_gap_guard
                     and not absorbed_leading_boundary_guard
+                    and not internal_phase_gap_split_guard
                     and previous.clip_end_reason in {"timeout", "dynamic_idle_tail"}
                     and candidate.clip_end_reason in {"timeout", "dynamic_idle_tail"}
                     and candidate.category in weak_phase_categories
@@ -1959,6 +2170,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                     and not classic_rescue_gap_guard
                     and not forward_leading_gap_guard
                     and not absorbed_leading_boundary_guard
+                    and not internal_phase_gap_split_guard
                     and previous.clip_end_reason in {"timeout", "dynamic_idle_tail"}
                 ):
                     # Can we fit this into a trimmed window?
@@ -1997,6 +2209,9 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                     
                     if trimmed_duration <= limit_with_tolerance:
                         # Success! Merge or Absorb
+                        previous_action_end_before_merge = previous.action_end or previous.trigger_time
+                        candidate_action_start_before_merge = candidate.action_start or candidate.trigger_time
+                        candidate_action_end_before_merge = candidate.action_end or candidate.trigger_time
                         previous.start = safe_start
                         previous.end = safe_end
                         previous.action_end = action_span_end
@@ -2028,6 +2243,10 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                             "phase_merge_original_duration": raw_combined_duration,
                             "phase_merge_trimmed_duration": trimmed_duration,
                             "phase_merge_duration_limit": max_duration,
+                            "phase_merge_previous_action_end_before_merge": previous_action_end_before_merge,
+                            "phase_merge_child_action_start": candidate_action_start_before_merge,
+                            "phase_merge_child_action_end": candidate_action_end_before_merge,
+                            "phase_merge_child_category": candidate.category,
                         })
                         continue
 
@@ -2035,6 +2254,66 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             final_clips.append(candidate)
         
     final_clips = merge_overlapping_final_clips(final_clips, duration, clips_cfg)
+
+    # A short catch/control followed by a clearly separated distribution can be
+    # merged by the broad phase window even though the video contains two distinct
+    # highlight moments. Split only when the merge diagnostics prove a long internal
+    # action gap and exactly one distribution child; ordinary possession chains stay
+    # untouched.
+    split_internal_gap = max(0.0, float(clips_cfg.get("catch_control_distribution_split_min_action_gap_seconds", 10.0)))
+    split_first_tail = max(0.0, float(clips_cfg.get("catch_control_distribution_split_first_tail_seconds", 2.0)))
+    split_distribution_pre = max(0.0, float(clips_cfg.get("catch_control_distribution_split_pre_roll_seconds", 4.0)))
+    split_distribution_post = max(0.0, float(clips_cfg.get("catch_control_distribution_split_post_roll_seconds", 7.0)))
+    split_clips: list[Candidate] = []
+    for candidate in final_clips:
+        child_category = str(candidate.score_breakdown.get("phase_merge_child_category", ""))
+        previous_action_end = float(candidate.score_breakdown.get("phase_merge_previous_action_end_before_merge", 0.0))
+        child_action_start = float(candidate.score_breakdown.get("phase_merge_child_action_start", 0.0))
+        child_action_end = float(candidate.score_breakdown.get("phase_merge_child_action_end", 0.0))
+        internal_action_gap = child_action_start - previous_action_end
+        should_split = (
+            "catch_control_distribution_split_min_action_gap_seconds" in clips_cfg
+            and candidate.accepted
+            and candidate.category == "catch_or_control"
+            and len(candidate.merged_from) == 1
+            and child_category in {"distribution", "goalkeeper_distribution", "keeper_clearance"}
+            and previous_action_end > 0.0
+            and child_action_start > previous_action_end
+            and child_action_end >= child_action_start
+            and internal_action_gap >= split_internal_gap
+        )
+        if should_split:
+            import copy
+            second = copy.deepcopy(candidate)
+            original_end = candidate.end
+            candidate.end = min(original_end, previous_action_end + split_first_tail)
+            candidate.action_end = previous_action_end
+            candidate.clip_boundary_reason = "internal_phase_gap_split"
+            candidate.score_breakdown.update({
+                "internal_phase_gap_split_applied": 1.0,
+                "internal_phase_gap_seconds": internal_action_gap,
+                "internal_phase_gap_split_part": 1.0,
+                "internal_phase_gap_split_effective_end": candidate.end,
+            })
+
+            second.candidate_id = f"{candidate.candidate_id}-phase-2"
+            second.category = child_category
+            second.start = max(candidate.end, child_action_start - split_distribution_pre)
+            second.end = min(duration, original_end, child_action_end + split_distribution_post)
+            second.action_start = child_action_start
+            second.action_end = child_action_end
+            second.clip_boundary_reason = "internal_phase_gap_split"
+            second.score_breakdown.update({
+                "internal_phase_gap_split_applied": 1.0,
+                "internal_phase_gap_seconds": internal_action_gap,
+                "internal_phase_gap_split_part": 2.0,
+                "internal_phase_gap_split_effective_start": second.start,
+                "internal_phase_gap_split_effective_end": second.end,
+            })
+            split_clips.extend([candidate, second])
+        else:
+            split_clips.append(candidate)
+    final_clips = split_clips
 
     isolated_dynamic_tail = max(0.0, float(clips_cfg.get("catch_control_isolated_dynamic_idle_tail_seconds", 3.0)))
     isolated_compact_action_max = max(
@@ -2166,6 +2445,18 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         float(clips_cfg.get("catch_control_final_overlap_recovery_extra_pre_roll_seconds", 1.0)),
     )
     merged_dynamic_tail_cap = max(6.0, float(clips_cfg.get("catch_control_merged_phase_max_seconds", 18.0)))
+    merged_strong_contact_min_frames = max(1, int(clips_cfg.get("catch_control_merged_strong_contact_min_frames", 40)))
+    merged_strong_pre_roll = max(0.0, float(clips_cfg.get("catch_control_merged_strong_pre_roll_seconds", 3.0)))
+    merged_strong_post_roll = max(0.0, float(clips_cfg.get("catch_control_merged_strong_post_roll_seconds", 2.0)))
+    merged_moderate_pre_roll = max(0.0, float(clips_cfg.get("catch_control_merged_moderate_pre_roll_seconds", 4.0)))
+    merged_moderate_post_roll = max(0.0, float(clips_cfg.get("catch_control_merged_moderate_post_roll_seconds", 6.0)))
+    diagnostic_save_trailing_core = max(6.0, float(clips_cfg.get("diagnostic_save_trailing_core_seconds", 10.0)))
+    distribution_compact_release_extra_tail = max(0.0, float(clips_cfg.get("distribution_compact_release_extra_tail_seconds", 2.0)))
+    restart_recovery_compact_core_seconds = max(6.0, float(clips_cfg.get("distribution_restart_recovery_compact_core_seconds", 10.0)))
+    restart_recovery_compact_min_action_seconds = max(6.0, float(clips_cfg.get("distribution_restart_recovery_compact_min_action_seconds", 12.0)))
+    restart_recovery_compact_max_departure = max(0.0, float(clips_cfg.get("distribution_restart_recovery_compact_max_departure_speed", 10.0)))
+    distribution_compact_release_max_possession = max(0.0, float(clips_cfg.get("distribution_compact_release_max_possession_seconds", 2.5)))
+    distribution_compact_release_min_departure = max(0.0, float(clips_cfg.get("distribution_compact_release_min_departure_speed", 10.0)))
     single_merge_dynamic_tail = max(0.5, float(clips_cfg.get("catch_control_single_merge_dynamic_tail_seconds", 4.0)))
     single_merge_pre_roll_cap = max(0.0, float(clips_cfg.get("catch_control_single_merge_pre_roll_seconds", 3.0)))
     controlled_release_long_phase_min_action = max(1.0, float(clips_cfg.get("catch_control_controlled_release_long_phase_min_action_seconds", 40.0)))
@@ -2187,17 +2478,49 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             and candidate.clip_end_reason == "dynamic_idle_tail"
             and len(candidate.merged_from) >= 2
         ):
-            capped_end = min(duration, candidate.start + merged_dynamic_tail_cap)
-            if capped_end < candidate.end:
-                candidate.end = capped_end
-                candidate.clip_boundary_reason = "merged_action_core"
-                candidate.score_breakdown.update(
-                    {
-                        "catch_control_merged_core_trim_applied": 1.0,
-                        "catch_control_merged_core_max_seconds": merged_dynamic_tail_cap,
-                        "catch_control_merged_core_effective_end": candidate.end,
-                    }
-                )
+            if len(candidate.merged_from) == 2:
+                # V13 action-centred trimming is only intended for a compact merged
+                # catch/control phase with exactly two follow-up candidates. Larger
+                # merge groups already had a stable V12 boundary: preserve their
+                # existing start and only cap the total duration.
+                action_start = candidate.action_start or candidate.trigger_time
+                action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+                strong_contact = candidate.contact_frames >= merged_strong_contact_min_frames
+                selected_pre = merged_strong_pre_roll if strong_contact else merged_moderate_pre_roll
+                selected_post = merged_strong_post_roll if strong_contact else merged_moderate_post_roll
+                core_start = max(candidate.start, action_start - selected_pre)
+                core_end = min(duration, action_end + selected_post)
+                if core_end - core_start > merged_dynamic_tail_cap:
+                    core_end = core_start + merged_dynamic_tail_cap
+                if core_start > candidate.start or core_end < candidate.end:
+                    candidate.start = core_start
+                    candidate.end = max(candidate.start, core_end)
+                    candidate.clip_boundary_reason = "merged_action_core"
+                    candidate.score_breakdown.update(
+                        {
+                            "catch_control_merged_core_trim_applied": 1.0,
+                            "catch_control_merged_core_max_seconds": merged_dynamic_tail_cap,
+                            "catch_control_merged_core_strong_contact": 1.0 if strong_contact else 0.0,
+                            "catch_control_merged_core_pre_roll_seconds": selected_pre,
+                            "catch_control_merged_core_post_roll_seconds": selected_post,
+                            "catch_control_merged_core_effective_start": candidate.start,
+                            "catch_control_merged_core_effective_end": candidate.end,
+                        }
+                    )
+            else:
+                capped_end = min(duration, candidate.start + merged_dynamic_tail_cap)
+                if capped_end < candidate.end:
+                    candidate.end = capped_end
+                    candidate.clip_boundary_reason = "merged_action_core"
+                    candidate.score_breakdown.update(
+                        {
+                            "catch_control_merged_core_trim_applied": 1.0,
+                            "catch_control_merged_core_max_seconds": merged_dynamic_tail_cap,
+                            "catch_control_merged_core_legacy_start_preserved": 1.0,
+                            "catch_control_merged_core_effective_start": candidate.start,
+                            "catch_control_merged_core_effective_end": candidate.end,
+                        }
+                    )
 
         if (
             candidate.accepted
@@ -2367,6 +2690,7 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             and candidate.category in {"keeper_clearance", "distribution", "goalkeeper_distribution"}
             and candidate.clip_end_reason in {"timeout", "observed_action_window", "dynamic_idle_tail"}
             and not candidate.merged_from
+            and float(candidate.score_breakdown.get("internal_phase_gap_split_part", 0.0)) != 2.0
         ):
             action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
             action_start = candidate.action_start or candidate.trigger_time
@@ -2443,6 +2767,33 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                 }
             )
 
+        # A restart can inherit a long synthetic action span when a recovery-pass
+        # fragment is merged behind the actual distribution. For moderate releases,
+        # keep a compact core anchored at the first observed action instead of the
+        # inflated merged action end.
+        if (
+            candidate.accepted
+            and candidate.category in {"distribution", "goalkeeper_distribution"}
+            and float(candidate.score_breakdown.get("restart_relevance_rescue_applied", 0.0)) > 0.0
+            and any(str(source_id).startswith("recovery-") for source_id in candidate.merged_from)
+            and not any(str(source_id).startswith("diagnostic-recovery-") for source_id in candidate.merged_from)
+        ):
+            action_start = candidate.action_start or candidate.trigger_time
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            if (
+                action_end - action_start >= restart_recovery_compact_min_action_seconds
+                and 0.0 < candidate.departure_speed < restart_recovery_compact_max_departure
+            ):
+                candidate.start = max(0.0, action_start)
+                candidate.end = min(duration, candidate.start + restart_recovery_compact_core_seconds)
+                candidate.clip_boundary_reason = "restart_recovery_compact_core"
+                candidate.score_breakdown.update({
+                    "restart_recovery_compact_core_applied": 1.0,
+                    "restart_recovery_compact_core_seconds": restart_recovery_compact_core_seconds,
+                    "restart_recovery_compact_effective_start": candidate.start,
+                    "restart_recovery_compact_effective_end": candidate.end,
+                })
+
         # A diagnostic-recovery fragment merged into an already strong restart can
         # inflate only the tail of the final clip. Keep the beginning/trigger
         # context and cap that diagnostic-augmented restart to a short core.
@@ -2489,11 +2840,31 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
         # boundary retains a small lead-in before the visible restart execution.
         # Long merged distributions use the compact-core start itself as the
         # execution boundary; their original trigger can be many seconds earlier.
+        if (
+            candidate.accepted
+            and candidate.category in {"distribution", "goalkeeper_distribution"}
+            and candidate.clip_end_reason == "controlled_release"
+            and bool(candidate.merged_from)
+            and float(candidate.score_breakdown.get("distribution_compact_core_applied", 0.0)) == 0.0
+            and candidate.departure_speed >= distribution_compact_release_min_departure
+        ):
+            strong_release_extra_tail = distribution_compact_release_extra_tail
+            desired_end = min(duration, candidate.end + strong_release_extra_tail)
+            if desired_end > candidate.end:
+                candidate.end = desired_end
+                candidate.clip_boundary_reason = "distribution_strong_release_tail"
+                candidate.score_breakdown.update({
+                    "distribution_strong_release_tail_applied": 1.0,
+                    "distribution_strong_release_extra_tail_seconds": strong_release_extra_tail,
+                    "distribution_strong_release_tail_effective_end": candidate.end,
+                })
+
         compact_core_applied = float(candidate.score_breakdown.get("distribution_compact_core_applied", 0.0)) > 0.0
         if (
             candidate.accepted
             and candidate.category in {"distribution", "goalkeeper_distribution", "keeper_clearance"}
             and (len(candidate.merged_from) <= 1 or compact_core_applied)
+            and float(candidate.score_breakdown.get("distribution_strong_release_tail_applied", 0.0)) == 0.0
         ):
             action_start = candidate.action_start or candidate.trigger_time
             action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
@@ -2670,13 +3041,20 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
             candidate.accepted
             and candidate.category == "diving_save"
             and candidate.clip_end_reason == "controlled_release"
-            and len(candidate.merged_from) >= 3
+            and len(candidate.merged_from) >= 1
             and float(candidate.score_breakdown.get("leading_context_absorbed", 0.0)) <= 0.0
         ):
             action_start = candidate.action_start or candidate.trigger_time
             action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
             compact_start = max(candidate.start, action_start - diving_save_merged_pre_roll_seconds)
-            compact_end = min(duration, action_end + diving_save_merged_post_roll_seconds)
+            # A single merged follow-up only needs the excessive lead-in removed;
+            # keep its already correct end boundary. Dense multi-event saves retain
+            # the established post-action extension used by Clip 40.
+            compact_end = (
+                candidate.end
+                if len(candidate.merged_from) == 1
+                else min(duration, action_end + diving_save_merged_post_roll_seconds)
+            )
             if compact_end > compact_start and (compact_start > candidate.start or compact_end != candidate.end):
                 candidate.start = compact_start
                 candidate.end = compact_end
@@ -2690,6 +3068,49 @@ def extend_and_chain_clip_windows(items: list[Candidate], duration: float, clips
                         "diving_save_merged_action_core_effective_end": candidate.end,
                     }
                 )
+
+        # Diagnostic recovery may start well before a later, genuine save sequence.
+        # For a promoted save/deflection with a controlled release, retain the end
+        # but focus the beginning on the final action core.
+        if (
+            candidate.accepted
+            and candidate.candidate_id.startswith("diagnostic-recovery-")
+            and candidate.category == "save_or_deflection"
+            and candidate.clip_end_reason == "controlled_release"
+            and len(candidate.merged_from) >= 4
+        ):
+            action_end = max(candidate.action_end or candidate.trigger_time, candidate.trigger_time)
+            focused_start = max(candidate.start, action_end - diagnostic_save_trailing_core)
+            if focused_start > candidate.start:
+                candidate.start = focused_start
+                candidate.clip_boundary_reason = "diagnostic_save_trailing_core"
+                candidate.score_breakdown.update({
+                    "diagnostic_save_trailing_core_applied": 1.0,
+                    "diagnostic_save_trailing_core_seconds": diagnostic_save_trailing_core,
+                    "diagnostic_save_trailing_core_effective_start": candidate.start,
+                })
+
+        # A compact high-speed distribution can end exactly at the generic four-second
+        # tail while the visible kicking motion is still finishing. Add a small tail
+        # only for short-possession, high-departure merged releases; established longer
+        # possession distribution baselines remain unchanged.
+        if (
+            candidate.accepted
+            and candidate.clip_boundary_reason == "distribution_compact_core_window"
+            and candidate.category in {"distribution", "goalkeeper_distribution"}
+            and len(candidate.merged_from) >= 4
+            and candidate.possession_duration <= distribution_compact_release_max_possession
+            and candidate.departure_speed >= distribution_compact_release_min_departure
+        ):
+            extended_end = min(duration, candidate.end + distribution_compact_release_extra_tail)
+            if extended_end > candidate.end:
+                candidate.end = extended_end
+                candidate.clip_boundary_reason = "distribution_compact_release_tail"
+                candidate.score_breakdown.update({
+                    "distribution_compact_release_tail_applied": 1.0,
+                    "distribution_compact_release_extra_tail_seconds": distribution_compact_release_extra_tail,
+                    "distribution_compact_release_tail_effective_end": candidate.end,
+                })
 
         if (
             candidate.accepted
