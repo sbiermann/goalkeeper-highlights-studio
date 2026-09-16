@@ -1,6 +1,6 @@
 # Goalkeeper Highlights Studio
 
-**Version 0.13.33**
+**Version 0.14.0 (V14)**
 
 Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-Highlights aus Fußballvideos. Die Pipeline kombiniert YOLO11 (Ultralytics), ByteTrack, eine zeitbasierte Ereignislogik, SQLite, FFmpeg und optional Qwen-Vision-Modelle.
 
@@ -15,7 +15,42 @@ Lokale CLI-Anwendung zur automatischen Erkennung und Erstellung von Torwart-High
 - **Recovery-Pass**: Zusätzlicher Durchlauf zur Erkennung möglicherweise übersehener Aktionen.
 - **Clip-Erstellung**: Automatischer Schnitt und Zusammenbau der Highlights mit FFmpeg.
 - **Umfangreiche Berichte**: HTML-Reports mit eingebetteten Videos (HTML5-Player), SQLite-Datenbank und JSON/CSV-Exporte.
-- **Diagnose**: Automatisches Debug-Paket (`goalkeeper_highlights_debug_v0.13.33.zip`) für detaillierte Fehleranalysen ohne Videodateien.
+- **Diagnose**: Automatisches Debug-Paket (`goalkeeper_highlights_debug_v0.14.0.zip`) für detaillierte Fehleranalysen ohne Videodateien.
+
+## V14: Highlight-Separatoren im Gesamtvideo
+
+V14 ergänzt das finale kombinierte Highlight-Video (`goalkeeper_highlights.mp4`) um Trennkarten zwischen einzelnen Highlights.
+
+- Einzelclips in `clips/` bleiben unverändert.
+- Separatoren werden nur im kombinierten Gesamtvideo eingefügt.
+- Kein Separator vor dem ersten Highlight und keiner nach dem letzten Highlight.
+- Separatoren nutzen schwarzen Hintergrund mit zentriertem weißen Text.
+- Die Anzeige verwendet Highlight-Nummer und menschenlesbare Kategorie, z. B. `Highlight 2 - Catch / Control` oder `Highlight 3 - Diving Save`.
+- Interne Kategorienamen werden automatisch in lesbare Titel umgewandelt.
+- Der Standard ist in V14 `highlights_complete.separator.duration_seconds: 1.0`.
+- Die Wiederverwendung bestehender Einzelclips bleibt erhalten; neu erstellt wird nur das finale `goalkeeper_highlights.mp4`.
+
+Konfigurationsbeispiel:
+
+```yaml
+highlights_complete:
+  separator:
+    enabled: true
+    duration_seconds: 1.0
+    show_clip_number: true
+    show_category: true
+    font_size: 72
+```
+
+### Rebuild nur des Gesamtvideos
+
+Mit `--rebuild-highlights-only` wird ausschließlich `goalkeeper_highlights.mp4` aus bereits vorhandenen Clips neu erstellt:
+
+```powershell
+goalkeeper-highlights analyze "C:\video\spiel_segment_01.mp4" --rebuild-highlights-only
+```
+
+Dabei werden **nicht** erneut ausgeführt: Videoanalyse, YOLO/Tracking, Event-Detection, Klassifikation, Qwen/VLM und Clip-Extraktion. Die Option ist für schnelle Iterationen am finalen Gesamtvideo ohne erneute Langzeitanalyse gedacht.
 
 *Hinweis: Dies ist ein experimentelles Projekt. Die Ergebnisse sollten stets manuell überprüft werden.*
 
@@ -110,6 +145,7 @@ goalkeeper-highlights analyze "C:\videorohdaten\match_2026" --decoder opencv --f
 | `--verbose` | Detaillierte Konsolenausgabe für Diagnosezwecke. |
 | `--clip-mode` | `accurate` (bildgenau, Re-Encoding) oder `fast` (Keyframe-Schnitt). |
 | `--parallel-jobs` | Anzahl paralleler FFmpeg-Prozesse für den Clip-Export. |
+| `--rebuild-highlights-only` | Baut nur `goalkeeper_highlights.mp4` aus vorhandenen Clips neu auf; keine erneute Analyse/Detektion/Klassifikation. |
 | `--encoder` | Video-Encoder (z. B. `h264_nvenc`, `libx264`). |
 | `--ffmpeg` | Pfad zur FFmpeg-Executable. |
 | `--ffprobe` | Pfad zur FFprobe-Executable. |
@@ -139,7 +175,7 @@ Die Ergebnisse werden im Ordner `<video>_goalkeeper_highlights/` gespeichert:
 ## Debug-Paket
 
 Nach jedem erfolgreichen Lauf wird automatisch ein Debug-Paket erstellt:
-`goalkeeper_highlights_debug_v0.13.33.zip`
+`goalkeeper_highlights_debug_v0.14.0.zip`
 
 Dieses Paket enthält **keine Videodateien**, sondern wichtige Diagnosedaten:
 - `candidate_pipeline_trace.json`: Komplette Historie aller Kandidaten.

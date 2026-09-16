@@ -13,6 +13,7 @@ os.environ["OPENCV_FFMPEG_READ_ATTEMPTS"] = os.environ.get("GOALKEEPER_OPENCV_RE
 from .benchmark import run_benchmark
 from .config import load_config
 from .pipeline import run
+from .video import rebuild_highlights_from_existing_clips, require_tool, set_verbose
 from .sources import discover_video_files
 from . import __version__
 
@@ -47,6 +48,11 @@ def parser() -> argparse.ArgumentParser:
     analyze.add_argument("--verbose", action="store_true", help="Show detailed detector, profiler and FFmpeg output")
     analyze.add_argument("--only-last-source", action="store_true", help="When VIDEO is a directory, analyze only the naturally sorted final source file")
     analyze.add_argument("--duration", type=float, help="Analyze only the first N seconds (default: full source)")
+    analyze.add_argument(
+        "--rebuild-highlights-only",
+        action="store_true",
+        help="Rebuild only goalkeeper_highlights.mp4 from existing clips; skip detection, classification and clip extraction",
+    )
 
     benchmark = sub.add_parser("benchmark", help="Run short, reproducible performance benchmark without clip export")
     _common(benchmark)
@@ -302,6 +308,16 @@ def main() -> int:
             if args.parallel_jobs is not None:
                 cfg.setdefault("clips", {})["parallel_jobs"] = max(1, args.parallel_jobs)
             cfg.setdefault("runtime", {})["verbose_console"] = bool(args.verbose)
+
+            if args.rebuild_highlights_only:
+                set_verbose(bool(args.verbose))
+                require_tool(args.ffmpeg)
+                require_tool(args.ffprobe)
+                final = rebuild_highlights_from_existing_clips(
+                    args.ffmpeg, output, cfg["clips"], cfg.get("highlights_complete", {}), args.ffprobe
+                )
+                print(f"Gesamtvideo neu erstellt: {final}")
+                return 0
 
             if video.is_dir():
                 ordered_sources = discover_video_files(video)

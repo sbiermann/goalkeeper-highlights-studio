@@ -15,7 +15,7 @@ from .profiling import PerformanceProfiler
 from .reporting import write_reports
 from .store import AnalysisStore
 from .sources import prepare_source_timeline
-from .video import concatenate, cut_virtual_clip, require_tool, resolve_encoder, set_verbose
+from .video import concatenate_highlights, cut_virtual_clip, require_tool, resolve_encoder, set_verbose
 
 ProgressCallback = Callable[[float, str], None]
 
@@ -103,12 +103,14 @@ def run(
 
         jobs: list[tuple[Path, object]] = []
         accepted: list[Path] = []
+        accepted_categories: list[str] = []
         for index, candidate in enumerate(candidates, 1):
             category = re.sub(r"[^a-zA-Z0-9_-]+", "_", candidate.category)[:30]
             if candidate.accepted:
                 clip = clips_dir / f"{index:03d}_{candidate.trigger_time:09.2f}_{category}.mp4"
                 candidate.clip_path = str(clip)
                 accepted.append(clip)
+                accepted_categories.append(candidate.category)
                 jobs.append((clip, candidate))
             elif export_rejected and not candidate.continuation_absorbed:
                 clip = rejected_dir / f"{index:03d}_{candidate.trigger_time:09.2f}_{category}_score{candidate.event_score:.3f}.mp4"
@@ -141,7 +143,10 @@ def run(
         if accepted and (not final.exists() or overwrite) and not benchmark_mode:
             if progress_callback:
                 progress_callback(0.99, "Füge Highlights zusammen")
-            concatenate(ffmpeg, accepted, final, output, clips_cfg, None if encoder == "stream_copy" else encoder)
+            concatenate_highlights(
+                ffmpeg, accepted, accepted_categories, final, output, clips_cfg,
+                config.get("highlights_complete", {}), None if encoder == "stream_copy" else encoder, ffprobe,
+            )
         timings["concat_seconds"] = time.perf_counter() - concat_started
         timings["accepted"] = len(accepted)
         timings["rejected"] = len(candidates) - len(accepted)

@@ -60,5 +60,8 @@ tests/test_v0_13_20_benchmark.py
 tests/test_v0_13_20_performance.py
 tests/test_v0_13_23_decoder_prefetch.py
 tests/test_v0_13_24_track_framework.py
+tests/test_v14_0_1_separator_font.py
+tests/test_v14_0_2_rebuild_complete.py
+tests/test_v14_highlight_separators.py
 tests/test_video.py
 tests/test_virtual_timeline.py

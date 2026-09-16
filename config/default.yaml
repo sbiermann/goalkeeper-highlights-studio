@@ -225,6 +225,15 @@ clips:
   cq: 20
   audio_bitrate: 160k
 
+
+highlights_complete:
+  separator:
+    enabled: true
+    duration_seconds: 1
+    show_clip_number: true
+    show_category: true
+    font_size: 72
+
 qwen:
   enabled: false
   model: Qwen/Qwen2.5-VL-3B-Instruct

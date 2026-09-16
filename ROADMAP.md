@@ -1,4 +1,4 @@
-Current stabilization release: 0.13.33. Clips/Candidates 1–20 of the reference material remain the verified quality baseline; next focus is clips 21+ and validation on additional videos. Performance/runtime defaults remain unchanged.
+Current release: 0.14.0 (V14). Separator cards in the combined highlight video are completed; the validated 0.13 detection/analysis baseline remains unchanged. Next quality focus remains clips 21+ and validation on additional videos.
 
 # Roadmap
 
@@ -44,6 +44,16 @@ Current stabilization release: 0.13.33. Clips/Candidates 1–20 of the reference
 - 60s production-path screening (`start=0`, `duration=60`, `frame_stride=2`, OpenCV+Prefetch, FP32, packed, baseline `image_size`) measured `analysis_seconds=43.879`, `processed_fps=17.115`.
 - Decision for 0.13.28: no new optimization default. Remaining dominant hotspot is still inside `model.track` framework cost; input-handling-related blocks did not show a simple local >=5% low-hanging-fruit path under current constraints.
 - Recommendation for 0.13.29: isolate and measure safe reductions around Ultralytics callback/predictor-pre overhead with strict functional equivalence guards.
+
+## 0.14.0 completed
+
+- Separator/title cards are implemented between highlights in `goalkeeper_highlights.mp4`.
+- Official default separator duration is `highlights_complete.separator.duration_seconds: 1.0`.
+- Internal event categories are rendered as human-readable separator titles.
+- Windows font resolution for FFmpeg `drawtext` is stabilized via explicit font-file resolution.
+- Complete-video generation is timestamp-normalized for robust A/V sync when separators are present.
+- `analyze --rebuild-highlights-only` rebuilds only the final combined highlight video from existing clips without rerunning analysis/detection/classification/extraction.
+- Detection/event/recovery/threshold behavior remains the validated 0.13 baseline.
 - Version 0.13.27 is completed as a constrained low-effort sweep on the established FP32/Packed/Prefetch path.
 - Screening/confirmation outcome: `tf32` gave a small speedup but remained below the 5% default threshold on 120s; `cudnn_benchmark` was slower; `imgsz=576` and `imgsz=512` were faster but not functionally equivalent (candidate-count deltas).
 - Event-rich Teil22 validation (`start=540`, `duration=220`) confirms functional equivalence for `tf32` (`4/3/1` vs `4/3/1`, keeper unchanged), but default criteria were still not met.

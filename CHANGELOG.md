@@ -1,3 +1,12 @@
+## 0.14.0 (V14)
+- Finalized release on top of the validated 0.13 detection/analysis baseline, with no intended behavior changes to detection, tracking, candidate scoring, boundary thresholds, recovery logic, or accepted/rejected decisions.
+- Added separator/title cards only between clips in the combined `goalkeeper_highlights.mp4`; no separator before the first highlight and none after the last highlight.
+- Separator title text uses human-readable event category names together with the highlight number (for example `Highlight 2 - Catch / Control`).
+- Official default separator duration is now `highlights_complete.separator.duration_seconds: 1.0` (authoritative defaults synchronized in `config/default.yaml` and `src/goalkeeper_highlights/default.yaml`).
+- Windows separator rendering uses explicitly resolved font files for FFmpeg `drawtext` robustness.
+- Complete-video rebuild path normalizes video/audio stream timestamps to avoid frozen video with running audio, A/V desynchronization, accelerated catch-up playback, and increasing inter-clip delay drift.
+- `analyze --rebuild-highlights-only` rebuilds only `goalkeeper_highlights.mp4` from already generated highlight clips and does not rerun source analysis, YOLO/tracking, event detection, Qwen/VLM routing, classification, or clip extraction.
+
 ## 0.13.33
 - Follow-up-Stabilisierungsrelease auf Basis der Root-Patches `v13.1` bis `v13.7.3` mit Fokus auf robuster Szenenabgrenzung bei unveränderter Event-/Candidate-/Recovery-/Threshold-Grundlogik.
 - Neue konfigurierbare Catch/Control→Distribution-Phasentrennung (`internal_phase_gap_split`) mit dedizierten Split-Parametern (`*_min_action_gap_seconds`, `*_first_tail_seconds`, `*_pre_roll_seconds`, `*_post_roll_seconds`) für präzisere Clip-1/Clip-2-Grenzen statt pauschaler Fenster.
